@@ -1,0 +1,126 @@
+# One-click experiment configuration
+# Run: python run.py
+
+# Run every selected dataset × method × backbone combination.
+methods:
+  - max_softmax
+  - deep_ensemble
+  - packed_ensemble
+  - batch_ensemble
+  - snapshot_ensemble
+  - checkpoint_ensemble
+  - variational_bnn
+  - swag
+  - sgld
+  - sghmc
+  - edl
+  - etp
+  - conformal_aps
+  - conformal_raps
+  - conformal_thr
+  - temperature_scaling
+  - laplace_approx
+  - mc_dropout
+  - mc_batch_norm
+
+# ResNet is supported by all methods. Add transformer, lenet, mlp, mamba,
+# lstm, or timesnet only after confirming that a method provides that variant.
+backbones:
+  - resnet
+
+datasets:
+  # - name: seu
+  #   root: /mnt/d/Data/Machine/SEU
+  - name: mgb
+    root: /mnt/d/Data/Machine/MGB
+
+training:
+  epochs: 100
+  batch_size: 128
+  learning_rate: 0.001
+  seeds: [0, 1, 2]
+  n_runs: 3          # Used only when seeds is null
+  val_split: 0.2
+
+evaluation:
+  noise: true
+
+hardware:
+  accelerator: auto
+  devices: 1
+  strategy: auto
+  precision: 32
+
+output:
+  dir: results
+
+# Optional overrides passed only to the corresponding method.
+method_args:
+  deep_ensemble:
+    num_estimators: 8
+    ood_criterion: entropy
+  packed_ensemble:
+    num_estimators: 4
+  batch_ensemble:
+    num_estimators: 4
+  snapshot_ensemble:
+    cycle_length: 5
+  checkpoint_ensemble:
+    cycle_start: 5
+    cycle_length: 5
+  variational_bnn:
+    kl_weight: 0.0001
+    num_samples: 3
+    ood_criterion: entropy
+  swag:
+    cycle_start: 25
+    cycle_length: 1
+  sgld:
+    pretrain_epochs: 20
+    pretrain_lr: 0.001
+    cycle_start: 5
+    cycle_length: 5
+    noise_factor: 0.01
+  sghmc:
+    pretrain_epochs: 20
+    pretrain_lr: 0.01
+    cycle_start: 5
+    cycle_length: 5
+    friction: 0.05
+    burn_in_steps: 200
+    noise_factor: 0.01
+  edl:
+    reg_weight: 0.5
+    loss_type: digamma
+  etp:
+    acc_gate: 0.98
+    anneal_start: 0.00001
+    anneal_end: 0.0001
+    grad_clip: 0.0
+  conformal_aps:
+    alpha: 0.01
+    randomized: true
+    enable_ts: false
+  conformal_raps:
+    alpha: 0.01
+    penalty: 0.002
+    regularization_rank: 3
+    randomized: true
+    enable_ts: false
+  conformal_thr:
+    alpha: 0.01
+    enable_ts: false
+  laplace_approx:
+    weight_subset: last_layer
+    hessian_struct: kron
+  mc_dropout:
+    dropout_rate: 0.1
+    num_estimators: 50
+    ood_criterion: entropy
+  mc_batch_norm:
+    num_estimators: 8
+    mc_batch_size: 4
+    last_only: true
+
+runner:
+  continue_on_error: true

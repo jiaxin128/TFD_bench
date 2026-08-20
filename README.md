@@ -1,0 +1,338 @@
+# Fault-Diagnosis Uncertainty Benchmark
+
+面向一维故障诊断信号的不确定性量化基准。项目提供统一的数据加载、训练、OOD 检测、噪声鲁棒性评估和多随机种子统计流程。
+
+## 功能
+
+- 使用一个 YAML 配置批量运行 `datasets × methods × backbones`
+- 每种方法也可以通过命令行独立运行
+- 统一保存 checkpoint、逐次实验指标和均值/标准差
+- 支持 ID、OOD 和多等级噪声评估
+- 支持确定性、集成、贝叶斯、证据学习和后处理方法
+
+## 项目结构
+
+```text
+.
+├── configs/default.yaml    # 一键实验总配置
+├── methods/                # 每种不确定性方法的独立入口
+├── src/                    # 数据、模型、损失、指标和训练核心
+├── analysis/               # 结果汇总、表格和可视化
+├── requirements.txt        # Python 依赖及验证版本
+├── run.py                  # 批量实验入口
+└── results/                # 默认输出目录
+```
+
+## 环境
+
+建议使用 Python 3.10。以 Conda 为例：
+
+```bash
+conda create -n tfd python=3.10 -y
+conda activate tfd
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+安装完成后可以检查主要依赖：
+
+```bash
+python -c "import torch, lightning, torchmetrics; print(torch.__version__)"
+```
+
+[`requirements.txt`](requirements.txt) 的核心依赖版本来自当前 `fd` 环境，并额外包含：
+
+- `laplace-torch`：供 `laplace_approx` 方法使用
+- `mamba-ssm`：仅供 Mamba backbone 使用
+
+默认的 ResNet 实验不需要调用 Mamba。PyTorch、CUDA 与 `mamba-ssm` 对系统环境有较强依赖；如果安装 Mamba 时发生编译错误，可先确保 PyTorch 已安装，再关闭构建隔离重新安装：
+
+```bash
+pip install torch==2.12.1 torchvision==0.27.1
+pip install mamba-ssm==2.3.2.post1 --no-build-isolation
+```
+
+## 快速开始
+
+### 方式一：通过总配置一键运行
+
+修改 [`configs/default.yaml`](configs/default.yaml)：
+
+```yaml
+methods:
+  - max_softmax
+  - edl
+  - mc_dropout
+
+backbones:
+  - resnet
+  - transformer
+
+datasets:
+  - name: seu
+    root: /mnt/d/Data/Machine/SEU
+  - name: mgb
+    root: /mnt/d/Data/Machine/MGB
+
+training:
+  epochs: 100
+  batch_size: 128
+  learning_rate: 0.001
+  seeds: [0, 1, 2]
+  val_split: 0.2
+
+evaluation:
+  noise: true
+
+hardware:
+  accelerator: auto
+  devices: 1
+  strategy: auto
+  precision: 32
+
+output:
+  dir: results
+```
+
+先预览将要执行的命令，不启动训练：
+
+```bash
+python run.py --dry-run
+```
+
+运行配置中的全部组合：
+
+```bash
+python run.py
+```
+
+`run.py` 会依次执行每个 `dataset × method × backbone` 组合。默认在某个组合失败后继续运行其他组合，并在结束时汇总失败项；可通过配置中的 `runner.continue_on_error` 修改该行为。
+
+> 并非所有方法都支持所有 backbone。`resnet` 的兼容性最完整；增加其他 backbone 前建议先用 `--dry-run` 检查实验矩阵，并单独运行一次对应方法。
+
+### 方式二：使用另一份配置
+
+复制默认配置并修改：
+
+```bash
+cp configs/default.yaml configs/my_experiment.yaml
+python run.py --config configs/my_experiment.yaml
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item configs/default.yaml configs/my_experiment.yaml
+python run.py --config configs/my_experiment.yaml
+```
+
+### 方式三：直接运行单个 method
+
+每个 `methods/*.py` 都是独立入口。它会读取默认配置，再使用命令行参数覆盖配置值。
+
+使用默认配置运行 EDL：
+
+```bash
+python methods/edl.py
+```
+
+指定配置和 backbone：
+
+```bash
+python methods/edl.py \
+  --config configs/default.yaml \
+  --backbone transformer
+```
+
+完全通过命令行覆盖常用参数：
+
+```bash
+python methods/edl.py \
+  --dataset mgb \
+  --data-root /mnt/d/Data/Machine/MGB \
+  --backbone resnet \
+  --epochs 50 \
+  --batch-size 64 \
+  --lr 0.001 \
+  --seeds 0 1 2 \
+  --val-split 0.2 \
+  --reg-weight 0.5 \
+  --loss-type digamma \
+  --no-eval-noise
+```
+
+查看某个方法支持的全部参数：
+
+```bash
+python methods/edl.py --help
+```
+
+### 方式四：在 YAML 中设置方法专属参数
+
+方法专属参数放在 `method_args` 下，只会传给对应方法：
+
+```yaml
+method_args:
+  deep_ensemble:
+    num_estimators: 8
+    ood_criterion: entropy
+
+  edl:
+    reg_weight: 0.5
+    loss_type: digamma
+
+  mc_dropout:
+    dropout_rate: 0.1
+    num_estimators: 50
+    ood_criterion: entropy
+
+  conformal_aps:
+    alpha: 0.01
+    randomized: true
+    enable_ts: false
+```
+
+YAML 中的下划线参数会自动转换为命令行的连字符形式，例如 `num_estimators` 会转换为 `--num-estimators`。布尔值会转换为 `--flag` 或 `--no-flag`。
+
+## 参数优先级
+
+运行单个方法时，参数优先级为：
+
+```text
+命令行参数 > --config 指定的 YAML > 代码默认值
+```
+
+常用公共参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--config` | YAML 配置路径 |
+| `--dataset` | 数据集名称 |
+| `--data-root` | 数据集根目录 |
+| `--backbone` | 模型名称 |
+| `--epochs` | 训练轮数 |
+| `--batch-size` | batch size |
+| `--lr` | 学习率 |
+| `--seeds` | 明确指定随机种子列表 |
+| `--n-runs` | `seeds` 未设置时生成 `0..n_runs-1` |
+| `--val-split` | 验证集比例 |
+| `--eval-noise` | 启用噪声评估 |
+| `--no-eval-noise` | 禁用噪声评估 |
+| `--accelerator` | `auto`、`gpu` 或 `cpu` |
+| `--devices` | 设备数量或 `auto` |
+| `--strategy` | 多卡策略 |
+| `--precision` | 训练精度 |
+| `--output-dir` | 输出根目录 |
+
+## 支持的方法
+
+| 类别 | 方法标识 |
+|---|---|
+| 基线 | `max_softmax` |
+| 集成方法 | `deep_ensemble`, `packed_ensemble`, `batch_ensemble`, `snapshot_ensemble`, `checkpoint_ensemble` |
+| 贝叶斯方法 | `variational_bnn`, `swag`, `sgld`, `sghmc` |
+| 证据方法 | `edl`, `etp` |
+| 共形预测 | `conformal_aps`, `conformal_raps`, `conformal_thr` |
+| 后处理/采样 | `temperature_scaling`, `laplace_approx`, `mc_dropout`, `mc_batch_norm` |
+
+方法名称与 `methods/<方法名称>.py` 一一对应。
+
+## 支持的模型
+
+公共 CLI 当前接受：
+
+```text
+resnet
+lenet
+mlp
+transformer
+mamba
+lstm
+timesnet
+```
+
+部分方法需要模型提供专用的 Bayesian 或 Packed 变体，因此不保证上述每个模型都能与所有方法组合。
+
+## 支持的数据集
+
+```text
+seu
+wt
+pu
+xjtu
+hit
+cwru
+thu
+mgb
+```
+
+数据输入统一为一维时域信号。一键运行多个数据集时，在 `datasets` 列表中为每个数据集同时填写 `name` 和 `root`。直接运行单个 method 时，默认使用列表中的第一个数据集，也可以通过 `--dataset` 和 `--data-root` 覆盖。
+
+## 输出结构
+
+默认结果保存在：
+
+```text
+results/<dataset>/<backbone>/<method>/
+├── config.json
+├── raw_all_seeds.csv
+├── summary.csv
+└── seed<seed>/
+    ├── metrics.csv
+    ├── ckpt/
+    └── logs/
+```
+
+- `metrics.csv`：单个随机种子的 clean/noise 指标
+- `raw_all_seeds.csv`：所有种子的原始结果
+- `summary.csv`：按测试配置汇总的均值和标准差
+- `config.json`：本次方法运行的最终参数
+
+启用噪声评估后，每个随机种子还会运行数据集定义的不同噪声类型和严重程度，因此运行时间会明显增加。调试代码时建议使用：
+
+```bash
+python methods/max_softmax.py \
+  --epochs 1 \
+  --seeds 0 \
+  --no-eval-noise
+```
+
+## 结果分析
+
+汇总实验结果：
+
+```bash
+python analysis/collect_results.py --source results --output results/summary.json
+```
+
+默认同时汇总 clean 和所有噪声等级。只读取 clean 或指定噪声等级：
+
+```bash
+python analysis/collect_results.py --source results --test-config clean
+python analysis/collect_results.py --source results --test-config gaussian_s3
+```
+
+也可以筛选数据集、模型或方法：
+
+```bash
+python analysis/collect_results.py \
+  --source results \
+  --dataset seu \
+  --backbone resnet \
+  --method edl
+```
+
+生成对比表格：
+
+```bash
+python analysis/generate_tables.py --input results/summary.json --format markdown
+```
+
+表格默认只展示 `ACC`、`ECE`、`AUROC`，并按数据集、模型和测试配置分别生成表格，例如 `clean`、`gaussian_s1`、...、`gaussian_s5` 各有一张表。ACC、ECE 和 AUROC 均以百分数显示，粗体表示同一张表中的最优结果。
+
+完整生成命令：
+
+```bash
+python analysis/collect_results.py --source results --output results/summary.json
+python analysis/generate_tables.py --input results/summary.json --output results/table.md
+```

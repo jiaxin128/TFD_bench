@@ -1,0 +1,29 @@
+# Experiment outputs and checkpoints
+results/
+lightning_logs/
+*.ckpt
+*.pt
+*.pth
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local secrets
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

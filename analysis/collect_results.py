@@ -1,0 +1,303 @@
+"""
+Result Collector — collect experiment results from lightning_logs or results/.
+
+Usage:
+    python analysis/collect_results.py --source lightning_logs
+    python analysis/collect_results.py --source results --output results/summary.json
+"""
+
+import argparse
+import csv
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+_PROJECT_ROOT = Path(__file__).parent.parent
+
+DISPLAY_METRICS = ("test/cls/Acc", "test/cal/ECE", "ood/AUROC")
+
+
+def parse_lightning_log(log_dir: Path) -> Optional[Dict[str, Any]]:
+    metrics_file = log_dir / "metrics.csv"
+    hparams_file = log_dir / "hparams.yaml"
+
+    result: Dict[str, Any] = {"log_dir": str(log_dir), "version": log_dir.name}
+
+    if hparams_file.exists():
+        import yaml
+
+        with open(hparams_file, encoding="utf-8") as f:
+            hparams = yaml.safe_load(f)
+            if hparams:
+                result["hparams"] = hparams
+
+    EXCLUDE = {"epoch", "step", "train_loss"}
+    if metrics_file.exists():
+        with open(metrics_file, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        if rows:
+            metrics = {}
+            for key, value in rows[-1].items():
+                if key in EXCLUDE or not (value and value.strip()):
+                    continue
+                try:
+                    metrics[key] = float(value)
+                except ValueError:
+                    pass
+            if metrics:
+                result["metrics"] = metrics
+
+    return result if "metrics" in result else None
+
+
+def parse_json_result(json_file: Path) -> List[Dict[str, Any]]:
+    with open(json_file, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def collect_from_lightning_logs(logs_dir: str) -> List[Dict[str, Any]]:
+    logs_path = Path(logs_dir)
+    results = []
+    if not logs_path.exists():
+        print(f"Warning: {logs_dir} does not exist")
+        return results
+
+    for item in sorted(logs_path.iterdir()):
+        if not item.is_dir():
+            continue
+        if item.name.startswith("version_"):
+            r = parse_lightning_log(item)
+            if r:
+                results.append(r)
+        else:
+            method_name = item.name
+            for version_dir in sorted(item.iterdir()):
+                if version_dir.is_dir() and version_dir.name.startswith("version_"):
+                    r = parse_lightning_log(version_dir)
+                    if r:
+                        if "hparams" not in r:
+                            r["hparams"] = {}
+                        r["hparams"].setdefault("method", method_name)
+                        r["method"] = r["hparams"].get("method", method_name)
+                        r["backbone"] = r["hparams"].get("backbone", "unknown")
+                        results.append(r)
+    return results
+
+
+def _read_standard_metrics(
+    metrics_file: Path,
+    results_path: Path,
+) -> List[Dict[str, Any]]:
+    """Read one raw_all_seeds.csv or seed<N>/metrics.csv file."""
+    relative = metrics_file.relative_to(results_path)
+    parts = relative.parts
+    if len(parts) < 4:
+        return []
+    dataset, backbone, method = parts[:3]
+
+    with metrics_file.open(encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+
+    records = []
+    for row in rows:
+        test_config = row.get("config") or "clean"
+        # Temperature scaling records both the uncalibrated baseline and the
+        # calibrated result. Only the latter represents this method in method
+        # comparison tables.
+        if method == "temperature_scaling":
+            if test_config.startswith("before_"):
+                continue
+            if test_config.startswith("after_"):
+                test_config = test_config.removeprefix("after_")
+        metrics = {}
+        for key, value in row.items():
+            if key in {"seed", "config"} or not value:
+                continue
+            try:
+                metrics[key] = float(value)
+            except (TypeError, ValueError):
+                continue
+        try:
+            seed = int(float(row.get("seed", 0)))
+        except (TypeError, ValueError):
+            seed = 0
+        records.append({
+            "dataset": dataset,
+            "backbone": backbone,
+            "method": method,
+            "seed": seed,
+            "config": test_config,
+            "metrics": metrics,
+            "source": str(metrics_file),
+        })
+    return records
+
+
+def collect_from_results_dir(
+    results_dir: str,
+    *,
+    test_config: str = "all",
+    dataset: str | None = None,
+    backbone: str | None = None,
+    method: str | None = None,
+) -> List[Dict[str, Any]]:
+    results_path = Path(results_dir)
+    all_results = []
+    if not results_path.exists():
+        print(f"Warning: {results_dir} does not exist")
+        return all_results
+    completed_method_dirs = set()
+    for metrics_file in sorted(results_path.rglob("raw_all_seeds.csv")):
+        completed_method_dirs.add(metrics_file.parent.resolve())
+        all_results.extend(_read_standard_metrics(metrics_file, results_path))
+
+    # Include partial experiments that have per-seed metrics but no aggregate yet.
+    for metrics_file in sorted(results_path.rglob("metrics.csv")):
+        if not re.fullmatch(r"seed\d+", metrics_file.parent.name):
+            continue
+        method_dir = metrics_file.parent.parent.resolve()
+        if method_dir in completed_method_dirs:
+            continue
+        all_results.extend(_read_standard_metrics(metrics_file, results_path))
+
+    return [
+        result for result in all_results
+        if (test_config == "all" or result["config"] == test_config)
+        and (dataset is None or result["dataset"] == dataset)
+        and (backbone is None or result["backbone"] == backbone)
+        and (method is None or result["method"] == method)
+    ]
+
+
+def compute_summary_statistics(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    groups: Dict[str, Any] = {}
+    for r in results:
+        dataset = r.get("dataset", "unknown")
+        backbone = r.get("backbone", "unknown")
+        method = r.get("method", "unknown")
+        test_config = r.get("config", "clean")
+        key = f"{dataset}/{backbone}/{method}/{test_config}"
+        if key not in groups:
+            groups[key] = {
+                "dataset": dataset,
+                "method": method,
+                "backbone": backbone,
+                "config": test_config,
+                "runs": [],
+            }
+        groups[key]["runs"].append(r)
+
+    summary = {}
+    for key, group in groups.items():
+        all_metrics: Dict[str, list] = {}
+        for run in group["runs"]:
+            for k, v in run.get("metrics", {}).items():
+                if isinstance(v, (int, float)):
+                    all_metrics.setdefault(k, []).append(v)
+
+        stats: Dict[str, Any] = {
+            "dataset": group["dataset"],
+            "method": group["method"],
+            "backbone": group["backbone"],
+            "config": group["config"],
+            "n_runs": len(group["runs"]), "metrics": {}
+        }
+        for metric, values in all_metrics.items():
+            stats["metrics"][metric] = {
+                "mean": round(float(np.mean(values)), 4),
+                "std": round(float(np.std(values)) if len(values) > 1 else 0.0, 4),
+                "n": len(values),
+            }
+        summary[key] = stats
+    return summary
+
+
+def save_results(results, output_path: str, fmt: str = "json"):
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if fmt == "json":
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+    else:
+        rows = []
+        for stats in (results.values() if isinstance(results, dict) else results):
+            row = {
+                "dataset": stats.get("dataset"),
+                "backbone": stats.get("backbone"),
+                "method": stats.get("method"),
+                "config": stats.get("config"),
+                "n_runs": stats.get("n_runs"),
+            }
+            for k, v in stats.get("metrics", {}).items():
+                row[f"{k}_mean"] = v["mean"]
+                row[f"{k}_std"] = v["std"]
+            rows.append(row)
+        if rows:
+            fieldnames = list(rows[0])
+            for row in rows[1:]:
+                for key in row:
+                    if key not in fieldnames:
+                        fieldnames.append(key)
+            with open(out, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+    print(f"Saved: {out}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Collect experiment results")
+    parser.add_argument("--source", default="lightning_logs",
+                        choices=["lightning_logs", "results", "both"])
+    parser.add_argument("--logs_dir", default=str(_PROJECT_ROOT / "lightning_logs"))
+    parser.add_argument("--results_dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument("--output", default=str(_PROJECT_ROOT / "results" / "summary.json"))
+    parser.add_argument("--format", default="json", choices=["json", "csv"])
+    parser.add_argument("--test-config", default="all",
+                        help="clean, gaussian_s1, ..., or all")
+    parser.add_argument("--dataset", default=None)
+    parser.add_argument("--backbone", default=None)
+    parser.add_argument("--method", default=None)
+    args = parser.parse_args()
+
+    all_results = []
+    if args.source in ("lightning_logs", "both"):
+        r = collect_from_lightning_logs(args.logs_dir)
+        print(f"lightning_logs: {len(r)} experiments")
+        all_results.extend(r)
+    if args.source in ("results", "both"):
+        r = collect_from_results_dir(
+            args.results_dir,
+            test_config=args.test_config,
+            dataset=args.dataset,
+            backbone=args.backbone,
+            method=args.method,
+        )
+        print(f"results/: {len(r)} experiments")
+        all_results.extend(r)
+
+    if not all_results:
+        print("No results found.")
+        return
+
+    summary = compute_summary_statistics(all_results)
+    save_results(summary, args.output, args.format)
+
+    for key, stats in summary.items():
+        print(
+            f"\n{stats.get('dataset', 'unknown')} + {stats['method']} + "
+            f"{stats['backbone']} + {stats.get('config', 'clean')} "
+            f"(n={stats['n_runs']}):"
+        )
+        for metric in DISPLAY_METRICS:
+            ms = stats["metrics"].get(metric)
+            if ms is not None:
+                print(f"  {metric}: {ms['mean'] * 100:.2f} ± {ms['std'] * 100:.2f}")
+
+
+if __name__ == "__main__":
+    main()
