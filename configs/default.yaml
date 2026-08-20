@@ -82,6 +82,9 @@ method_args:
     memory_std: 0.1
     context_size: 50
     prior_precision: 10.0
+    feature_reg_weight: 0.05
+    feature_temperature: 0.1
+    feature_warmup_epochs: 10
     weight_decay: 0.0
     grad_clip: 0.0
   conformal_aps:

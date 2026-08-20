@@ -253,6 +253,9 @@ TESSA 的主要参数：
 | `memory_std` | memory 查询时的采样标准差 | `0.1` |
 | `context_size` | 每个 batch 随机 memory context 的上限 | `50` |
 | `prior_precision` | 变分线性层的高斯先验精度 | `10.0` |
+| `feature_reg_weight` | 特征与同类 memory slots 的对比约束权重 | `0.05` |
+| `feature_temperature` | prototype-contrastive 相似度温度 | `0.1` |
+| `feature_warmup_epochs` | 特征约束从弱到强的 warm-up epoch 数 | `10` |
 | `weight_decay` | Adam 的权重衰减 | `0.0` |
 
 EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-3` 不应直接设成相同值：
@@ -265,6 +268,8 @@ EDL 输出的是非负 evidence，而不是普通 logits。训练时使用 `DECL
 TESSA 的 memory 位于 backbone 的特征空间中：每个类别拥有独立的 memory slots，
 训练时按类别和余弦相似度更新，预测时将查询到的 memory 特征与当前样本特征拼接后输出证据。
 当前实现要求 backbone 提供 `feats_forward()` 和线性 `fc` 分类头（默认的 `resnet` 满足要求）。
+v1 特征约束使用 prototype-contrastive loss，使样本靠近同类 memory slots 并远离其他类别 slots；
+该约束仅作用于训练，不包含 temperature scaling，也不改变测试阶段的概率计算。
 
 ## 支持的模型
 

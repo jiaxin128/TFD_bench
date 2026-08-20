@@ -38,15 +38,21 @@ class _TrainingLoss(nn.Module):
 
 
 class TESSARoutine(ClassificationRoutine):
-    def __init__(self, model: TESSA, **kwargs):
+    def __init__(self, model: TESSA, feature_warmup_epochs: int = 10, **kwargs):
+        if feature_warmup_epochs <= 0:
+            raise ValueError("feature_warmup_epochs must be positive")
         kwargs.setdefault("ood_criterion", PredictiveEntropyCriterion())
         super().__init__(model=model, loss=_TrainingLoss(), **kwargs)
         self.tessa = model
+        self.feature_warmup_epochs = feature_warmup_epochs
 
     def training_step(self, batch: tuple[Tensor, Tensor], *args, **kwargs) -> STEP_OUTPUT:
         inputs, targets = self.format_batch_fn(self._apply_mixup(batch))
-        loss = self.tessa.compute_loss(inputs, targets)
+        feature_scale = min((self.current_epoch + 1) / self.feature_warmup_epochs, 1.0)
+        loss = self.tessa.compute_loss(inputs, targets, feature_reg_scale=feature_scale)
         self.log("train_loss", loss, prog_bar=True, logger=True)
+        self.log("train/feature_loss", self.tessa.last_feature_loss, logger=True)
+        self.log("train/feature_scale", feature_scale, logger=True)
         return loss
 
     def on_train_epoch_end(self) -> None:
@@ -72,11 +78,14 @@ def run_once(args, seed, run_dir):
         context_size=args.context_size,
         prior_precision=args.prior_precision,
         reg_weight=args.reg_weight,
+        feature_reg_weight=args.feature_reg_weight,
+        feature_temperature=args.feature_temperature,
     )
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     routine = TESSARoutine(
         model=model,
         num_classes=datamodule.num_classes,
+        feature_warmup_epochs=args.feature_warmup_epochs,
         optim_recipe={
             "optimizer": optimizer,
             "lr_scheduler": optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs),
@@ -105,6 +114,9 @@ if __name__ == "__main__":
     parser.add_argument("--memory-std", type=float, default=0.1)
     parser.add_argument("--context-size", type=int, default=50)
     parser.add_argument("--prior-precision", type=float, default=10.0)
+    parser.add_argument("--feature-reg-weight", type=float, default=0.05)
+    parser.add_argument("--feature-temperature", type=float, default=0.1)
+    parser.add_argument("--feature-warmup-epochs", type=int, default=10)
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--grad-clip", type=float, default=0.0)
     args = parser.parse_args()
