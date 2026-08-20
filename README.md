@@ -258,6 +258,10 @@ TESSA 的主要参数：
 EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-3` 不应直接设成相同值：
 两种方法的正则项定义和数值尺度不同，因此不应直接设置成相同数值。
 
+EDL 输出的是非负 evidence，而不是普通 logits。训练时使用 `DECLoss`，验证和测试时
+先计算 `alpha = evidence + 1`，再以 Dirichlet 均值 `alpha / alpha.sum()` 作为类别概率；
+因此 EDL 的 NLL 和 ECE 不会对 evidence 直接使用 softmax。
+
 TESSA 的 memory 位于 backbone 的特征空间中：每个类别拥有独立的 memory slots，
 训练时按类别和余弦相似度更新，预测时将查询到的 memory 特征与当前样本特征拼接后输出证据。
 当前实现要求 backbone 提供 `feats_forward()` 和线性 `fc` 分类头（默认的 `resnet` 满足要求）。

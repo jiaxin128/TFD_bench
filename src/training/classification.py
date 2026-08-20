@@ -438,6 +438,16 @@ class ClassificationRoutine(LightningModule):
             logits = self.model(inputs)
         return logits
 
+    def prediction_to_probs(self, prediction: Tensor) -> Tensor:
+        """Convert model outputs to probabilities used by evaluation metrics.
+
+        Subclasses can override this when their model output is not a standard
+        logit tensor, for example when it represents evidential parameters.
+        """
+        if self.binary_cls:
+            return torch.sigmoid(prediction).squeeze(-1)
+        return F.softmax(prediction, dim=-1)
+
     def training_step(self, batch: tuple[Tensor, Tensor]) -> STEP_OUTPUT:
         """Perform a single training step based on the input tensors.
 
@@ -482,10 +492,7 @@ class ClassificationRoutine(LightningModule):
         logits = self.forward(inputs, save_feats=self.eval_grouping_loss)
         logits = rearrange(logits, "(m b) c -> b m c", b=targets.size(0))
 
-        if self.binary_cls:
-            probs_per_est = torch.sigmoid(logits).squeeze(-1)
-        else:
-            probs_per_est = F.softmax(logits, dim=-1)
+        probs_per_est = self.prediction_to_probs(logits)
 
         probs = probs_per_est.mean(dim=1)
         self.val_cls_metrics.update(probs, targets)
@@ -515,7 +522,7 @@ class ClassificationRoutine(LightningModule):
         targets = targets[:: self.num_tta]
         logits = self.forward(inputs, save_feats=self.eval_grouping_loss)
         logits = rearrange(logits, "(m b) c -> b m c", b=targets.size(0))
-        probs_per_est = torch.sigmoid(logits) if self.binary_cls else F.softmax(logits, dim=-1)
+        probs_per_est = self.prediction_to_probs(logits)
         probs = probs_per_est.mean(dim=1)
 
         if self.post_processing is not None:

@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 
 import torch.nn.functional as F
-from torch import nn, optim
+from torch import Tensor, nn, optim
 
 from src.losses import DECLoss
 from src.metrics.ood import EvidentialCriterion
@@ -27,10 +27,18 @@ class EvidenceWrapper(nn.Module):
 METHOD_NAME = "edl"
 
 
+class EDLRoutine(ClassificationRoutine):
+    """Evaluate evidence through the mean of its Dirichlet distribution."""
+
+    def prediction_to_probs(self, evidence: Tensor) -> Tensor:
+        alpha = evidence.clamp_min(0) + 1.0
+        return alpha / alpha.sum(dim=-1, keepdim=True)
+
+
 def run_once(args, seed, run_dir):
     def build(dm):
         model = EvidenceWrapper(get_model(args.backbone, dm.num_channels, dm.num_classes))
-        return ClassificationRoutine(
+        return EDLRoutine(
             model=model, num_classes=dm.num_classes,
             loss=DECLoss(reg_weight=args.reg_weight, loss_type=args.loss_type),
             optim_recipe=optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-3),
