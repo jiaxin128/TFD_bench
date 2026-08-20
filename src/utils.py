@@ -247,7 +247,7 @@ def parse_devices(devices_str: str) -> int | str:
             return devices_str
 
 
-def load_gpu_config(args: argparse.Namespace, config_path: str = None) -> Dict[str, Any]:
+def load_gpu_config(args: argparse.Namespace) -> Dict[str, Any]:
     """
     Load GPU configuration from args and optional config file.
     从参数和可选配置文件加载 GPU 配置。
@@ -262,25 +262,6 @@ def load_gpu_config(args: argparse.Namespace, config_path: str = None) -> Dict[s
         "strategy": args.strategy if hasattr(args, "strategy") else "auto",
         "precision": args.precision if hasattr(args, "precision") else "32",
     }
-    
-    # Override from config file if provided
-    if config_path or (hasattr(args, "config") and args.config):
-        config_file = config_path or args.config
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                if config and ("hardware" in config or "gpu" in config):
-                    gpu_cfg = config.get("hardware", config.get("gpu", {}))
-                    if "accelerator" in gpu_cfg:
-                        gpu_config["accelerator"] = gpu_cfg["accelerator"]
-                    if "devices" in gpu_cfg:
-                        gpu_config["devices"] = parse_devices(str(gpu_cfg["devices"]))
-                    if "strategy" in gpu_cfg:
-                        gpu_config["strategy"] = gpu_cfg["strategy"]
-                    if "precision" in gpu_cfg:
-                        gpu_config["precision"] = str(gpu_cfg["precision"])
-        except Exception as e:
-            print(f"Warning: Could not load config from {config_file}: {e}")
     
     # Convert precision to int if possible
     if gpu_config["precision"] in ["32", "16"]:

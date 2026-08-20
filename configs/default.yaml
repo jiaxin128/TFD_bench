@@ -3,25 +3,9 @@
 
 # Run every selected dataset × method × backbone combination.
 methods:
-  - max_softmax
-  - deep_ensemble
-  - packed_ensemble
-  - batch_ensemble
-  - snapshot_ensemble
-  - checkpoint_ensemble
-  - variational_bnn
-  - swag
-  - sgld
-  - sghmc
   - edl
-  - etp
-  - conformal_aps
-  - conformal_raps
-  - conformal_thr
-  - temperature_scaling
-  - laplace_approx
+  - tessa
   - mc_dropout
-  - mc_batch_norm
 
 # ResNet is supported by all methods. Add transformer, lenet, mlp, mamba,
 # lstm, or timesnet only after confirming that a method provides that variant.
@@ -29,8 +13,8 @@ backbones:
   - resnet
 
 datasets:
-  # - name: seu
-  #   root: /mnt/d/Data/Machine/SEU
+  - name: seu
+    root: /mnt/d/Data/Machine/SEU
   - name: mgb
     root: /mnt/d/Data/Machine/MGB
 
@@ -92,9 +76,15 @@ method_args:
   edl:
     reg_weight: 0.5
     loss_type: digamma
-  etp:
+  tessa:
+    reg_weight: 0.0001
     anneal_start: 0.00001
-    anneal_end: 0.0001
+    memory_size: 20
+    memory_decay: 0.9
+    memory_std: 0.01
+    context_size: 128
+    prior_precision: 10.0
+    weight_decay: 0.005
     grad_clip: 0.0
   conformal_aps:
     alpha: 0.01
@@ -114,7 +104,7 @@ method_args:
     hessian_struct: kron
   mc_dropout:
     dropout_rate: 0.1
-    num_estimators: 50
+    num_estimators: 10
     ood_criterion: entropy
   mc_batch_norm:
     num_estimators: 8

@@ -233,11 +233,31 @@ YAML 中的下划线参数会自动转换为命令行的连字符形式，例如
 | 基线 | `max_softmax` |
 | 集成方法 | `deep_ensemble`, `packed_ensemble`, `batch_ensemble`, `snapshot_ensemble`, `checkpoint_ensemble` |
 | 贝叶斯方法 | `variational_bnn`, `swag`, `sgld`, `sghmc` |
-| 证据方法 | `edl`, `etp` |
+| 证据方法 | `edl`, `tessa` |
 | 共形预测 | `conformal_aps`, `conformal_raps`, `conformal_thr` |
 | 后处理/采样 | `temperature_scaling`, `laplace_approx`, `mc_dropout`, `mc_batch_norm` |
 
 方法名称与 `methods/<方法名称>.py` 一一对应。
+
+`tessa` 是本 benchmark 对重构后方法采用的名称，其模型来源是 ICLR 2022 的
+[Evidential Turing Processes](https://openreview.net/forum?id=84NMXTHYe-)（原论文名称为 ETP）。
+入口文件只保留实验组装，模型主体位于 `src/models/tessa.py`。
+
+TESSA 的主要参数：
+
+| 参数 | 含义 | 默认值 |
+|---|---|---:|
+| `reg_weight` | 训练结束时的 Dirichlet KL 正则权重 | `1e-4` |
+| `anneal_start` | 第一个 epoch 的正则权重 | `1e-5` |
+| `memory_size` | 外部 memory cell 数量 | `20` |
+| `memory_decay` | 旧 memory 的保留比例 | `0.9` |
+| `memory_std` | 训练时 memory 采样标准差 | `0.01` |
+| `context_size` | 每个 batch 用于更新 memory 的最大样本数 | `128` |
+| `prior_precision` | 变分线性层的高斯先验精度 | `10.0` |
+| `weight_decay` | Adam 的权重衰减 | `0.005` |
+
+EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-4` 不应直接设成相同值：
+两种方法的正则项定义和数值尺度不同，TESSA 还会从 `anneal_start` 逐步退火到最终权重。
 
 ## 支持的模型
 

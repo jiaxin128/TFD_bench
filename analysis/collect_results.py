@@ -29,6 +29,10 @@ def _read_standard_metrics(
     if len(parts) < 4:
         return []
     dataset, backbone, method = parts[:3]
+    # Ignore stale result directories left behind after a method is renamed or
+    # removed. For example, TESSA supersedes the former ``etp`` entry point.
+    if not (_PROJECT_ROOT / "methods" / f"{method}.py").is_file():
+        return []
 
     with metrics_file.open(encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
