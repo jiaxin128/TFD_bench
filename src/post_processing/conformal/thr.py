@@ -55,9 +55,9 @@ class ConformalClsTHR(Conformal):
         label_list = []
         with torch.no_grad():
             for images, labels in dataloader:
-                images, labels = images.to(self.device), labels.to(self.device)
-                logit_list.append(self.model_forward(images))
-                label_list.append(labels)
+                probs = self.model_forward(images)
+                logit_list.append(probs)
+                label_list.append(labels.to(probs.device))
 
         probs = torch.cat(logit_list)
         labels = torch.cat(label_list).long()

@@ -53,7 +53,8 @@ class ConformalClsAPS(Conformal):
     def model_forward(self, inputs: Tensor) -> Tensor:
         """Apply the model and return the scores."""
         self.model.eval()
-        return self.model(inputs.to(self.device)).softmax(-1)
+        model_device = next(self.model.parameters()).device
+        return self.model(inputs.to(model_device)).softmax(-1)
 
     def _sort_sum(self, probs: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """Sort probabilities and compute cumulative sums."""
@@ -92,8 +93,8 @@ class ConformalClsAPS(Conformal):
 
         aps_scores = []
         for images, labels in dataloader:
-            images, labels = images.to(self.device), labels.to(self.device)
             probs = self.model_forward(images)
+            labels = labels.to(probs.device)
             scores = self._calculate_single_label(probs, labels)
             aps_scores.append(scores)
 

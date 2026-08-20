@@ -47,7 +47,8 @@ class Conformal(PostProcessing):
     def model_forward(self, inputs: Tensor) -> Tensor:
         """Apply the model and return the scores."""
         self.model.eval()
-        return self.model(inputs.to(self.device)).softmax(-1)
+        model_device = next(self.model.parameters()).device
+        return self.model(inputs.to(model_device)).softmax(-1)
 
     @abstractmethod
     def conformal(self, inputs: Tensor) -> Tensor: ...
