@@ -196,11 +196,10 @@ class _Loss(torch.nn.Module):
         raise RuntimeError("_Loss should never be called.")
 
 class ETPClassificationRoutine(ClassificationRoutine):
-    def __init__(self, model: EvidentialTuringProcess, acc_gate: float = 0.98, **kwargs):
+    def __init__(self, model: EvidentialTuringProcess, **kwargs):
         kwargs.setdefault("ood_criterion", ETPOODCriterion())
         super().__init__(model=model, loss=_Loss(), **kwargs)
         self._etp = model
-        self.acc_gate = acc_gate
 
     def training_step(self, batch: tuple[Tensor, Tensor], *args, **kwargs) -> STEP_OUTPUT:
         batch = self._apply_mixup(batch)
@@ -210,15 +209,6 @@ class ETPClassificationRoutine(ClassificationRoutine):
         self.log("train_loss", loss, prog_bar=True, logger=True)
         return loss
     
-    def on_validation_epoch_end(self) -> None:
-        res_dict = self.val_cls_metrics.compute()   # 先取值，父类会 reset
-        acc = res_dict["val/cls/Acc"]
-        ece = res_dict["val/cal/ECE"]
-        super().on_validation_epoch_end()           # 正常 log + reset
-        # Acc 达标后按 ECE 选，否则给一个极差的分
-        score = ece if acc >= self.acc_gate else torch.tensor(1e6, device=ece.device)
-        self.log("val/selection_score", score, logger=True, sync_dist=True)
-
     def on_train_start(self) -> None:
         if self.logger is not None:
             self.logger.log_hyperparams(self.hparams)
@@ -249,14 +239,11 @@ def run_once(args, seed, run_dir):
         num_classes=datamodule.num_classes,
         optim_recipe=optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.005),
         eval_ood=True,
-        acc_gate=args.acc_gate,
         save_in_csv=True,
     )
     trainer = make_trainer(
         args,
         run_dir,
-        monitor="val/selection_score",
-        mode="min",
         callbacks=[
             AnnealCallback(
                 model,
@@ -277,7 +264,6 @@ def run(args):
 
 if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
-    parser.add_argument("--acc-gate", type=float, default=0.98)
     parser.add_argument("--anneal-start", type=float, default=1e-5)
     parser.add_argument("--anneal-end", type=float, default=1e-4)
     parser.add_argument("--grad-clip", type=float, default=0.0)

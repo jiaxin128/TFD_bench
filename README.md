@@ -346,6 +346,8 @@ python analysis/collect_results.py
 python analysis/generate_tables.py
 ```
 
+所有方法均使用验证集 `NLL` 最小的 epoch 作为最佳 checkpoint。测试集以及噪声测试结果不参与模型选择；多个随机种子分别选取 checkpoint 后，再汇总均值和标准差。
+
 生成按数据集、模型和噪声等级分组的 ACC/ECE/AUROC 对比图，以及跨噪声等级趋势图：
 
 ```bash

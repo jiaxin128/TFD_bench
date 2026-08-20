@@ -36,7 +36,7 @@ def run_once(args, seed, run_dir):
             optim_recipe=optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-3),
             eval_ood=True, ood_criterion=EvidentialCriterion(), save_in_csv=True,
         )
-    return fit_and_evaluate(args, run_dir, build, monitor="val/cls/Acc", mode="max")
+    return fit_and_evaluate(args, run_dir, build)
 
 
 def run(args):
