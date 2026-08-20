@@ -335,3 +335,12 @@ python analysis/generate_tables.py --input results/summary.json --format markdow
 python analysis/collect_results.py
 python analysis/generate_tables.py --input results/summary.json --output results/table.md
 ```
+
+生成按数据集、模型和噪声等级分组的 ACC/ECE/AUROC 对比图，以及跨噪声等级趋势图：
+
+```bash
+python analysis/visualization/plot_all.py
+```
+
+图片默认保存到 `figures/<dataset>/<backbone>/`。`summary.json` 只包含聚合指标，
+因此 ROC 曲线、可靠性图和不确定性分布图需要额外的逐样本预测分数，不能由汇总文件直接还原。

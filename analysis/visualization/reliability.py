@@ -5,7 +5,7 @@ Visualize model calibration by comparing predicted confidence with actual accura
 通过对比预测置信度和实际准确率来可视化模型校准。
 
 Usage / 使用方法:
-    from scripts.visualization import reliability
+    from analysis.visualization import reliability
     fig = reliability.plot_reliability_diagram(confidences, accuracies)
 """
 
@@ -19,7 +19,7 @@ def compute_calibration_bins(
     confidences: np.ndarray,
     correctness: np.ndarray,
     n_bins: int = 10
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Compute calibration statistics for bins.
     计算分箱的校准统计量。
@@ -32,6 +32,7 @@ def compute_calibration_bins(
     Returns:
         bin_centers: Center of each bin / 每个分箱的中心
         bin_accuracies: Accuracy in each bin / 每个分箱的准确率
+        bin_confidences: Mean confidence in each bin / 每个分箱的平均置信度
         bin_counts: Number of samples in each bin / 每个分箱的样本数
     """
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
@@ -51,7 +52,7 @@ def compute_calibration_bins(
             bin_accuracies[i] = np.mean(correctness[in_bin])
             bin_confidences[i] = np.mean(confidences[in_bin])
     
-    return bin_centers, bin_accuracies, bin_counts
+    return bin_centers, bin_accuracies, bin_confidences, bin_counts
 
 
 def plot_reliability_diagram(
@@ -89,7 +90,7 @@ def plot_reliability_diagram(
         fig = ax.figure
     
     # Compute bins
-    bin_centers, bin_accuracies, bin_counts = compute_calibration_bins(
+    bin_centers, bin_accuracies, bin_confidences, bin_counts = compute_calibration_bins(
         confidences, correctness, n_bins
     )
     
@@ -110,10 +111,10 @@ def plot_reliability_diagram(
     
     # Show calibration gap
     if show_gap:
-        for i, (center, acc) in enumerate(zip(bin_centers, bin_accuracies)):
+        for i, (confidence, acc) in enumerate(zip(bin_confidences, bin_accuracies)):
             if bin_counts[i] > 0:
-                gap_color = '#e74c3c' if acc < center else '#27ae60'
-                ax.plot([center, center], [center, acc], 
+                gap_color = '#e74c3c' if acc < confidence else '#27ae60'
+                ax.plot([confidence, confidence], [confidence, acc],
                        color=gap_color, linewidth=2, alpha=0.7)
     
     # Show sample counts
@@ -128,7 +129,10 @@ def plot_reliability_diagram(
     ece = 0.0
     for i in range(n_bins):
         if bin_counts[i] > 0:
-            ece += bin_counts[i] / total_samples * np.abs(bin_accuracies[i] - bin_centers[i])
+            ece += (
+                bin_counts[i] / total_samples
+                * np.abs(bin_accuracies[i] - bin_confidences[i])
+            )
     
     # Labels and title
     ax.set_xlabel('Confidence', fontsize=11)
@@ -171,7 +175,7 @@ def plot_multi_reliability(
         figsize = (4 * ncols, 4 * nrows)
     
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
-    axes = axes.flatten() if n_methods > 1 else [axes]
+    axes = np.atleast_1d(axes).ravel()
     
     colors = plt.cm.tab10(np.linspace(0, 1, 10))
     

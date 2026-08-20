@@ -5,7 +5,7 @@ Compare uncertainty distributions between ID and OOD samples.
 对比 ID 和 OOD 样本的不确定性分布。
 
 Usage / 使用方法:
-    from scripts.visualization import uncertainty
+    from analysis.visualization import uncertainty
     fig = uncertainty.plot_uncertainty_distribution(id_scores, ood_scores)
 """
 
@@ -116,7 +116,7 @@ def plot_multi_uncertainty_comparison(
         figsize = (6 * ncols, 4 * nrows)
     
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
-    axes = axes.flatten() if n_methods > 1 else [axes]
+    axes = np.atleast_1d(axes).ravel()
     
     for i, (method_name, (id_scores, ood_scores)) in enumerate(results_dict.items()):
         if i < len(axes):

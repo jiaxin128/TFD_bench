@@ -1,117 +1,267 @@
-"""
-Plot All — generate all visualization figures from experiment results.
+"""Generate benchmark comparison figures from ``results/summary.json``.
 
-Usage:
-    python analysis/visualization/plot_all.py --results results/summary.json --output figures/
-    python analysis/visualization/plot_all.py --demo
+The summary contains aggregated metrics rather than per-sample predictions, so
+this entry point produces method comparisons and noise-trend figures. ROC,
+reliability, and uncertainty-distribution helpers remain available as separate
+modules when per-sample arrays are available.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import os
+import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 
-matplotlib.use('TkAgg')
+# Allow running this file directly from any working directory.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_PROJECT_ROOT))
 
-# Allow running as a script from any directory
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from analysis.visualization.reliability import plot_reliability_diagram, plot_multi_reliability
-from analysis.visualization.uncertainty import plot_uncertainty_distribution, plot_violin_comparison
-from analysis.visualization.roc import plot_roc_curves, plot_pr_curves, plot_roc_and_pr
-from analysis.visualization.comparison import plot_metric_comparison, plot_metric_heatmap, plot_radar_chart
-
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
+from analysis.generate_tables import METHOD_NAMES
+from analysis.visualization.comparison import plot_metric_heatmap
+from analysis.visualization.reliability import plot_reliability_diagram
+from analysis.visualization.roc import plot_roc_and_pr
+from analysis.visualization.uncertainty import plot_uncertainty_distribution
 
 
-def load_results(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+PLOT_METRICS = {
+    "test/cls/Acc": {"label": "ACC", "scale": 100, "higher_better": True},
+    "test/cal/ECE": {"label": "ECE", "scale": 100, "higher_better": False},
+    "ood/AUROC": {"label": "AUROC", "scale": 100, "higher_better": True},
+}
 
 
-def generate_all_plots(results: dict, output_dir: str, dpi: int = 150):
-    os.makedirs(output_dir, exist_ok=True)
-    print("=" * 60)
-    print("Generating Visualization Figures")
-    print("=" * 60)
-
-    metrics_dict = {}
-    for key, stats in results.items():
-        method = stats.get("method", key)
-        metrics = {k: v["mean"] if isinstance(v, dict) else v
-                   for k, v in stats.get("metrics", {}).items()}
-        if metrics:
-            metrics_dict[method] = metrics
-
-    if metrics_dict:
-        for name, fig_fn, kwargs in [
-            ("comparison_bar.png",     plot_metric_comparison, {"title": "Method Comparison"}),
-            ("comparison_heatmap.png", plot_metric_heatmap,    {"title": "Method Comparison Heatmap"}),
-        ]:
-            fig = fig_fn(metrics_dict, **kwargs)
-            path = os.path.join(output_dir, name)
-            fig.savefig(path, dpi=dpi, bbox_inches="tight")
-            plt.close(fig)
-            print(f"  Saved: {path}")
-
-        if len(list(metrics_dict.values())[0]) >= 3:
-            fig = plot_radar_chart(metrics_dict, title="Method Comparison (Radar)")
-            path = os.path.join(output_dir, "comparison_radar.png")
-            fig.savefig(path, dpi=dpi, bbox_inches="tight")
-            plt.close(fig)
-            print(f"  Saved: {path}")
-
-    print(f"\nAll figures saved to: {output_dir}")
+def load_results(path: str | Path) -> dict:
+    with Path(path).open(encoding="utf-8") as stream:
+        return json.load(stream)
 
 
-def generate_demo_plots(output_dir: str, dpi: int = 150):
-    os.makedirs(output_dir, exist_ok=True)
-    np.random.seed(42)
-    print("Generating demo figures...")
+def _config_sort_key(config: str) -> tuple[int, str, int]:
+    if config == "clean":
+        return (0, "", 0)
+    match = re.fullmatch(r"(.+)_s(\d+)", config)
+    if match:
+        return (1, match.group(1), int(match.group(2)))
+    return (2, config, 0)
 
-    confidences = np.random.beta(5, 2, 1000)
-    correctness = np.random.binomial(1, confidences * 0.85)
-    fig = plot_reliability_diagram(confidences, correctness, title="Sample Reliability Diagram")
-    fig.savefig(os.path.join(output_dir, "demo_reliability.png"), dpi=dpi, bbox_inches="tight")
+
+def _safe_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+
+
+def _group_results(results: dict) -> dict:
+    """Return method metrics grouped by dataset/backbone/test configuration."""
+    groups: dict[tuple[str, str, str], dict[str, dict[str, float]]] = defaultdict(dict)
+    for stats in results.values():
+        metrics = stats.get("metrics", {})
+        values = {}
+        for metric, config in PLOT_METRICS.items():
+            metric_stats = metrics.get(metric)
+            if metric_stats is None:
+                break
+            mean = metric_stats.get("mean") if isinstance(metric_stats, dict) else metric_stats
+            if mean is None:
+                break
+            values[config["label"]] = float(mean) * config["scale"]
+        if len(values) != len(PLOT_METRICS):
+            continue
+
+        group_key = (
+            stats.get("dataset", "unknown"),
+            stats.get("backbone", "unknown"),
+            stats.get("config", "clean"),
+        )
+        raw_method = stats.get("method", "unknown")
+        method = METHOD_NAMES.get(raw_method, raw_method)
+        groups[group_key][method] = values
+    return groups
+
+
+def _save_figure(fig: plt.Figure, path: Path, dpi: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
+    print(f"Saved: {path}")
 
-    id_scores = np.random.beta(2, 5, 500)
-    ood_scores = np.random.beta(5, 2, 500)
-    fig = plot_uncertainty_distribution(id_scores, ood_scores, title="Sample Uncertainty Distribution")
-    fig.savefig(os.path.join(output_dir, "demo_uncertainty.png"), dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+
+def _plot_metric_panels(methods: dict[str, dict[str, float]], title: str) -> plt.Figure:
+    """Plot ACC, ECE, and AUROC on independent axes so every metric is legible."""
+    method_names = sorted(methods)
+    y = np.arange(len(method_names))
+    fig, axes = plt.subplots(
+        1,
+        len(PLOT_METRICS),
+        figsize=(15, max(6, 0.42 * len(method_names))),
+        sharey=True,
+    )
+
+    for ax, metric_config in zip(axes, PLOT_METRICS.values()):
+        label = metric_config["label"]
+        values = np.asarray([methods[method][label] for method in method_names])
+        ax.scatter(values, y, s=34, color="#3498db", zorder=3)
+        best_index = int(np.argmax(values) if metric_config["higher_better"] else np.argmin(values))
+        ax.scatter(
+            values[best_index],
+            y[best_index],
+            s=90,
+            facecolor="#f1c40f",
+            edgecolor="#8a6d00",
+            linewidth=1.2,
+            zorder=4,
+            label="Best",
+        )
+
+        spread = float(values.max() - values.min())
+        margin = max(spread * 0.08, 0.05)
+        ax.set_xlim(float(values.min() - margin), float(values.max() + margin))
+        direction = "↑" if metric_config["higher_better"] else "↓"
+        ax.set_title(f"{label} {direction}")
+        ax.set_xlabel("Percent (%)")
+        ax.set_yticks(y)
+        ax.grid(True, axis="x", alpha=0.3)
+        ax.invert_yaxis()
+
+    axes[0].set_yticklabels(method_names, fontsize=9)
+    axes[-1].legend(loc="best", fontsize=8)
+    fig.suptitle(title, fontsize=14)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig
+
+
+def _plot_noise_trends(groups: dict, output_dir: Path, dpi: int) -> int:
+    by_benchmark = defaultdict(lambda: defaultdict(dict))
+    for (dataset, backbone, config), methods in groups.items():
+        for method, values in methods.items():
+            by_benchmark[(dataset, backbone)][method][config] = values
+
+    count = 0
+    for (dataset, backbone), methods in sorted(by_benchmark.items()):
+        configs = sorted(
+            {config for method_values in methods.values() for config in method_values},
+            key=_config_sort_key,
+        )
+        x = np.arange(len(configs))
+        fig, axes = plt.subplots(1, 3, figsize=(18, 7), sharex=True)
+        colors = plt.cm.tab20(np.linspace(0, 1, max(len(methods), 1)))
+
+        for method_index, method in enumerate(sorted(methods)):
+            for ax, metric_config in zip(axes, PLOT_METRICS.values()):
+                label = metric_config["label"]
+                values = [methods[method].get(config, {}).get(label, np.nan) for config in configs]
+                ax.plot(
+                    x,
+                    values,
+                    marker="o",
+                    markersize=3,
+                    linewidth=1.4,
+                    color=colors[method_index],
+                    label=method,
+                )
+
+        for ax, metric_config in zip(axes, PLOT_METRICS.values()):
+            direction = "↑" if metric_config["higher_better"] else "↓"
+            ax.set_title(f"{metric_config['label']} {direction}")
+            ax.set_ylabel("Percent (%)")
+            ax.set_xticks(x)
+            ax.set_xticklabels(configs, rotation=35, ha="right")
+            ax.grid(True, alpha=0.3)
+
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=min(5, max(1, len(labels))),
+            fontsize=8,
+        )
+        fig.suptitle(f"{dataset} / {backbone} — Noise Robustness", fontsize=14)
+        fig.tight_layout(rect=(0, 0.16, 1, 0.95))
+        path = output_dir / _safe_name(dataset) / _safe_name(backbone) / "noise_trends.png"
+        _save_figure(fig, path, dpi)
+        count += 1
+    return count
+
+
+def generate_all_plots(results: dict, output_dir: str | Path, dpi: int = 150) -> None:
+    output_path = Path(output_dir)
+    groups = _group_results(results)
+    if not groups:
+        raise ValueError("No ACC/ECE/AUROC records were found in the summary file.")
+
+    metric_labels = [config["label"] for config in PLOT_METRICS.values()]
+    higher_better = {
+        config["label"]: config["higher_better"] for config in PLOT_METRICS.values()
+    }
+    figure_count = 0
+
+    for (dataset, backbone, config), methods in sorted(
+        groups.items(),
+        key=lambda item: (item[0][0], item[0][1], _config_sort_key(item[0][2])),
+    ):
+        title = f"{dataset} / {backbone} / {config}"
+        group_dir = output_path / _safe_name(dataset) / _safe_name(backbone)
+
+        comparison = _plot_metric_panels(methods, title)
+        _save_figure(
+            comparison,
+            group_dir / f"{_safe_name(config)}_comparison.png",
+            dpi,
+        )
+
+        heatmap = plot_metric_heatmap(
+            methods,
+            metrics=metric_labels,
+            title=title,
+            higher_better=higher_better,
+        )
+        _save_figure(heatmap, group_dir / f"{_safe_name(config)}_heatmap.png", dpi)
+        figure_count += 2
+
+    figure_count += _plot_noise_trends(groups, output_path, dpi)
+    print(f"Generated {figure_count} figures in {output_path}")
+
+
+def generate_demo_plots(output_dir: str | Path, dpi: int = 150) -> None:
+    """Generate examples for helpers that require per-sample arrays."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(42)
+
+    confidences = rng.beta(5, 2, 1000)
+    correctness = rng.binomial(1, confidences * 0.85)
+    fig = plot_reliability_diagram(confidences, correctness, title="Reliability Diagram")
+    _save_figure(fig, output_path / "demo_reliability.png", dpi)
+
+    id_scores = rng.beta(2, 5, 500)
+    ood_scores = rng.beta(5, 2, 500)
+    fig = plot_uncertainty_distribution(id_scores, ood_scores)
+    _save_figure(fig, output_path / "demo_uncertainty.png", dpi)
 
     labels = np.concatenate([np.zeros(500), np.ones(500)])
     roc_data = {
-        "Method A": (labels, np.concatenate([np.random.beta(2, 5, 500), np.random.beta(5, 2, 500)])),
-        "Method B": (labels, np.concatenate([np.random.beta(3, 4, 500), np.random.beta(4, 3, 500)])),
+        "Method A": (labels, np.concatenate([id_scores, ood_scores])),
+        "Method B": (
+            labels,
+            np.concatenate([rng.beta(3, 4, 500), rng.beta(4, 3, 500)]),
+        ),
     }
-    fig = plot_roc_and_pr(roc_data, title="Sample OOD Detection")
-    fig.savefig(os.path.join(output_dir, "demo_roc_pr.png"), dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-
-    demo = {
-        "MaxSoftmax": {"Accuracy": 0.95, "ECE": 0.08, "AUROC": 0.85},
-        "MC Dropout":  {"Accuracy": 0.96, "ECE": 0.05, "AUROC": 0.89},
-        "EDL":         {"Accuracy": 0.97, "ECE": 0.03, "AUROC": 0.92},
-        "Ensemble":    {"Accuracy": 0.98, "ECE": 0.02, "AUROC": 0.94},
-    }
-    fig = plot_metric_comparison(demo, title="Sample Method Comparison")
-    fig.savefig(os.path.join(output_dir, "demo_comparison.png"), dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-
-    print(f"Demo figures saved to: {output_dir}")
+    fig = plot_roc_and_pr(roc_data, title="OOD Detection")
+    _save_figure(fig, output_path / "demo_roc_pr.png", dpi)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate all visualization figures")
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", default=str(_PROJECT_ROOT / "results" / "summary.json"))
-    parser.add_argument("--output", default="figures")
+    parser.add_argument("--output", default=str(_PROJECT_ROOT / "figures"))
     parser.add_argument("--dpi", type=int, default=150)
     parser.add_argument("--demo", action="store_true")
     args = parser.parse_args()

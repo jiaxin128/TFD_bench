@@ -1,6 +1,7 @@
 # Experiment outputs and checkpoints
 results/
 lightning_logs/
+figures/
 *.ckpt
 *.pt
 *.pth

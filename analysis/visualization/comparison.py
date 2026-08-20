@@ -5,7 +5,7 @@ Multi-method comparison bar charts and heatmaps.
 多方法对比柱状图和热力图。
 
 Usage / 使用方法:
-    from scripts.visualization import comparison
+    from analysis.visualization import comparison
     fig = comparison.plot_metric_comparison(results_dict)
 """
 

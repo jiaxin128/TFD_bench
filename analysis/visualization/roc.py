@@ -5,7 +5,7 @@ Compare OOD detection performance across methods using ROC curves.
 使用ROC曲线对比各方法的OOD检测性能。
 
 Usage / 使用方法:
-    from scripts.visualization import roc
+    from analysis.visualization import roc
     fig = roc.plot_roc_curves(results_dict)
 """
 
