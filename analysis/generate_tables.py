@@ -218,6 +218,12 @@ def main():
     parser.add_argument("--metrics", nargs="+", default=None)
     parser.add_argument("--highlight", default="best", choices=["best", "none"])
     parser.add_argument("--caption", default="")
+    parser.add_argument(
+        "--print",
+        dest="print_table",
+        action="store_true",
+        help="Also print the generated table to the terminal",
+    )
     args = parser.parse_args()
 
     results = load_results(args.input)
@@ -232,10 +238,13 @@ def main():
     else:
         table = generate_html_table(results, metrics, highlight)
 
-    if args.output:
-        Path(args.output).write_text(table, encoding="utf-8")
-        print(f"Saved: {args.output}")
-    else:
+    suffix = {"markdown": "md", "latex": "tex", "html": "html"}[args.format]
+    output = Path(args.output) if args.output else _PROJECT_ROOT / "results" / f"table.{suffix}"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(table, encoding="utf-8")
+    print(f"Saved: {output}")
+
+    if args.print_table:
         print(table)
 
 

@@ -324,16 +324,26 @@ python analysis/collect_results.py \
 生成对比表格：
 
 ```bash
-python analysis/generate_tables.py --input results/summary.json --format markdown
+python analysis/generate_tables.py
 ```
 
-表格默认只展示 `ACC`、`ECE`、`AUROC`，并按数据集、模型和测试配置分别生成表格，例如 `clean`、`gaussian_s1`、...、`gaussian_s5` 各有一张表。ACC、ECE 和 AUROC 均以百分数显示，粗体表示同一张表中的最优结果。
+Markdown 表格默认保存到 `results/table.md`。表格只展示 `ACC`、`ECE`、`AUROC`，并按数据集、模型和测试配置分别生成表格，例如 `clean`、`gaussian_s1`、...、`gaussian_s5` 各有一张表。ACC、ECE 和 AUROC 均以百分数显示，粗体表示同一张表中的最优结果。
+
+同时在终端中显示表格，或生成其他格式：
+
+```bash
+python analysis/generate_tables.py --print
+python analysis/generate_tables.py --format latex
+python analysis/generate_tables.py --format html
+```
+
+后两条命令默认分别保存到 `results/table.tex` 和 `results/table.html`；仍可使用 `--output` 指定其他保存位置。
 
 完整生成命令：
 
 ```bash
 python analysis/collect_results.py
-python analysis/generate_tables.py --input results/summary.json --output results/table.md
+python analysis/generate_tables.py
 ```
 
 生成按数据集、模型和噪声等级分组的 ACC/ECE/AUROC 对比图，以及跨噪声等级趋势图：
