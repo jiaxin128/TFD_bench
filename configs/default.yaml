@@ -5,7 +5,6 @@
 methods:
   - edl
   - tessa
-  - mc_dropout
 
 # ResNet is supported by all methods. Add transformer, lenet, mlp, mamba,
 # lstm, or timesnet only after confirming that a method provides that variant.
