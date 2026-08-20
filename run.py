@@ -119,42 +119,6 @@ def main() -> int:
             print(f"  {dataset} + {method} + {backbone}: exit code {returncode}")
         return 1
 
-    if runner_config.get("generate_reports", True) and not args.dry_run:
-        output_dir = Path(config.get("output", {}).get("dir", "results"))
-        if not output_dir.is_absolute():
-            output_dir = PROJECT_ROOT / output_dir
-        figures_dir = Path(config.get("output", {}).get("figures_dir", "figures"))
-        if not figures_dir.is_absolute():
-            figures_dir = PROJECT_ROOT / figures_dir
-        summary = output_dir / "summary.json"
-
-        report_commands = [
-            [
-                sys.executable,
-                str(PROJECT_ROOT / "analysis" / "collect_results.py"),
-                "--results-dir", str(output_dir),
-                "--output", str(summary),
-            ],
-            [
-                sys.executable,
-                str(PROJECT_ROOT / "analysis" / "generate_tables.py"),
-                "--input", str(summary),
-                "--output", str(output_dir / "table.md"),
-            ],
-            [
-                sys.executable,
-                str(PROJECT_ROOT / "analysis" / "visualization" / "plot_all.py"),
-                "--results", str(summary),
-                "--output", str(figures_dir),
-                "--clean",
-            ],
-        ]
-        for command in report_commands:
-            print(f"\nPost-processing: {' '.join(command)}", flush=True)
-            result = subprocess.run(command, cwd=PROJECT_ROOT)
-            if result.returncode != 0:
-                print(f"Post-processing failed with exit code {result.returncode}")
-                return result.returncode
     return 0
 
 

@@ -106,7 +106,7 @@ python run.py --dry-run
 python run.py
 ```
 
-默认会覆盖所选数据集、模型和方法对应的旧实验目录；不会删除其他未选中的实验结果。全部实验成功后，会自动更新 `results/summary.json`、`results/table.md` 和 `figures/`。可在 `runner` 配置中通过 `overwrite` 和 `generate_reports` 关闭对应行为。
+默认会覆盖所选数据集、模型和方法对应的旧实验目录；不会删除其他未选中的实验结果。可在 `runner` 配置中通过 `overwrite` 关闭覆盖行为。训练完成后，再按“结果汇总与可视化”一节中的命令生成汇总、表格和图片。
 
 `run.py` 会依次执行每个 `dataset × method × backbone` 组合。默认在某个组合失败后继续运行其他组合，并在结束时汇总失败项；可通过配置中的 `runner.continue_on_error` 修改该行为。
 
