@@ -74,8 +74,6 @@ class TESSA(nn.Module):
         context_size: int = 50,
         prior_precision: float = 10.0,
         reg_weight: float = 1e-3,
-        feature_reg_weight: float = 0.05,
-        feature_temperature: float = 0.1,
     ) -> None:
         super().__init__()
         if dataset_size <= 0:
@@ -84,10 +82,8 @@ class TESSA(nn.Module):
             raise ValueError("memory_size must cover every class and context_size must be at least 3")
         if not 0 <= memory_decay <= 1:
             raise ValueError("memory_decay must be in [0, 1]")
-        if memory_std <= 0 or prior_precision <= 0 or feature_temperature <= 0:
-            raise ValueError("memory_std, prior_precision and feature_temperature must be positive")
-        if reg_weight < 0 or feature_reg_weight < 0:
-            raise ValueError("regularization weights must be non-negative")
+        if memory_std <= 0 or prior_precision <= 0 or reg_weight < 0:
+            raise ValueError("memory_std and prior_precision must be positive; reg_weight non-negative")
 
         if not hasattr(backbone, "feats_forward"):
             raise TypeError("TESSA requires a backbone with feats_forward()")
@@ -104,9 +100,6 @@ class TESSA(nn.Module):
         self.memory_std = memory_std
         self.context_size = context_size
         self.reg_weight = reg_weight
-        self.feature_reg_weight = feature_reg_weight
-        self.feature_temperature = feature_temperature
-        self.last_feature_loss = torch.tensor(0.0)
 
         memory = F.normalize(torch.randn(memory_size, self.feature_dim), dim=-1)
         self.register_buffer("memory", memory)
@@ -161,15 +154,6 @@ class TESSA(nn.Module):
     def _log_concentration(self, features: Tensor, attention: Tensor) -> Tensor:
         return self.predictor(torch.cat((features, attention), dim=1)).clamp(max=15)
 
-    def _feature_contrastive_loss(self, features: Tensor, targets: Tensor) -> Tensor:
-        """Pull features toward same-class slots and repel other-class slots."""
-        features = F.normalize(features, dim=-1)
-        memory = F.normalize(self.memory.detach(), dim=-1)
-        logits = features @ memory.transpose(0, 1) / self.feature_temperature
-        positive_mask = self.memory_labels.unsqueeze(0) == targets.unsqueeze(1)
-        positive_logits = logits.masked_fill(~positive_mask, float("-inf"))
-        return (torch.logsumexp(logits, dim=1) - torch.logsumexp(positive_logits, dim=1)).mean()
-
     def forward(self, inputs: Tensor) -> Tensor:
         features = self._features(inputs)
         attention = self._attention(features)
@@ -189,19 +173,11 @@ class TESSA(nn.Module):
             return self.memory.new_zeros(())
         return torch.pdist(self.memory).mean()
 
-    def compute_loss(
-        self,
-        inputs: Tensor,
-        targets: Tensor,
-        *,
-        feature_reg_scale: float = 1.0,
-    ) -> Tensor:
+    def compute_loss(self, inputs: Tensor, targets: Tensor) -> Tensor:
         one_hot = F.one_hot(targets, self.num_classes)
         features = self._features(inputs)
         attention = self._attention(features)
         log_concentration = self._log_concentration(features, attention)
-        feature_loss = self._feature_contrastive_loss(features, targets)
-        self.last_feature_loss = feature_loss.detach()
         self._update_memory(features, targets)
 
         concentration = log_concentration.exp()
@@ -209,12 +185,7 @@ class TESSA(nn.Module):
         fit = (one_hot * (torch.digamma(strength + 1e-8) - torch.digamma(concentration + 1e-8))).sum(1)
         prior_concentration = self.memory_prior(attention).clamp(max=15).exp()
         regularization = kl_divergence(Dirichlet(concentration), Dirichlet(prior_concentration))
-        evidential_loss = (fit + self.reg_weight * regularization).mean()
-        return (
-            evidential_loss
-            + self.variational_kl() / self.dataset_size
-            + self.feature_reg_weight * feature_reg_scale * feature_loss
-        )
+        return (fit + self.reg_weight * regularization).mean() + self.variational_kl() / self.dataset_size
 
 
 __all__ = ["TESSA", "VariationalLinear"]

@@ -5,6 +5,7 @@
 methods:
   - edl
   - tessa
+  # - tessav1
 
 # ResNet is supported by all methods. Add transformer, lenet, mlp, mamba,
 # lstm, or timesnet only after confirming that a method provides that variant.
@@ -76,6 +77,15 @@ method_args:
     reg_weight: 0.5
     loss_type: digamma
   tessa:
+    reg_weight: 0.001
+    memory_size: 20
+    memory_decay: 0.99
+    memory_std: 0.1
+    context_size: 50
+    prior_precision: 10.0
+    weight_decay: 0.0
+    grad_clip: 0.0
+  tessav1:
     reg_weight: 0.001
     memory_size: 20
     memory_decay: 0.99
