@@ -77,14 +77,13 @@ method_args:
     reg_weight: 0.5
     loss_type: digamma
   tessa:
-    reg_weight: 0.0001
-    anneal_start: 0.00001
+    reg_weight: 0.001
     memory_size: 20
-    memory_decay: 0.9
-    memory_std: 0.01
-    context_size: 128
+    memory_decay: 0.99
+    memory_std: 0.1
+    context_size: 50
     prior_precision: 10.0
-    weight_decay: 0.005
+    weight_decay: 0.0
     grad_clip: 0.0
   conformal_aps:
     alpha: 0.01

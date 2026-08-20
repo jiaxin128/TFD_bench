@@ -247,17 +247,20 @@ TESSA 的主要参数：
 
 | 参数 | 含义 | 默认值 |
 |---|---|---:|
-| `reg_weight` | 训练结束时的 Dirichlet KL 正则权重 | `1e-4` |
-| `anneal_start` | 第一个 epoch 的正则权重 | `1e-5` |
-| `memory_size` | 外部 memory cell 数量 | `20` |
-| `memory_decay` | 旧 memory 的保留比例 | `0.9` |
-| `memory_std` | 训练时 memory 采样标准差 | `0.01` |
-| `context_size` | 每个 batch 用于更新 memory 的最大样本数 | `128` |
+| `reg_weight` | Dirichlet KL 正则权重 | `1e-3` |
+| `memory_size` | 特征空间中的外部 memory slot 总数 | `20` |
+| `memory_decay` | 旧 memory 的保留比例 | `0.99` |
+| `memory_std` | memory 查询时的采样标准差 | `0.1` |
+| `context_size` | 每个 batch 随机 memory context 的上限 | `50` |
 | `prior_precision` | 变分线性层的高斯先验精度 | `10.0` |
-| `weight_decay` | Adam 的权重衰减 | `0.005` |
+| `weight_decay` | Adam 的权重衰减 | `0.0` |
 
-EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-4` 不应直接设成相同值：
-两种方法的正则项定义和数值尺度不同，TESSA 还会从 `anneal_start` 逐步退火到最终权重。
+EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-3` 不应直接设成相同值：
+两种方法的正则项定义和数值尺度不同，因此不应直接设置成相同数值。
+
+TESSA 的 memory 位于 backbone 的特征空间中：每个类别拥有独立的 memory slots，
+训练时按类别和余弦相似度更新，预测时将查询到的 memory 特征与当前样本特征拼接后输出证据。
+当前实现要求 backbone 提供 `feats_forward()` 和线性 `fc` 分类头（默认的 `resnet` 满足要求）。
 
 ## 支持的模型
 

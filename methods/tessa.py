@@ -5,7 +5,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
 
-import lightning.pytorch as pl
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn, optim
@@ -50,17 +49,13 @@ class TESSARoutine(ClassificationRoutine):
         self.log("train_loss", loss, prog_bar=True, logger=True)
         return loss
 
-
-class RegularizationAnnealing(pl.Callback):
-    def __init__(self, model: TESSA, start: float, end: float, max_epochs: int):
-        self.model = model
-        self.start = start
-        self.end = end
-        self.max_epochs = max_epochs
-
-    def on_train_epoch_start(self, trainer, pl_module) -> None:
-        progress = min(trainer.current_epoch / max(self.max_epochs - 1, 1), 1.0)
-        self.model.set_reg_weight(self.start + (self.end - self.start) * progress)
+    def on_train_epoch_end(self) -> None:
+        self.log(
+            "train/memory_diversity",
+            self.tessa.memory_diversity(),
+            prog_bar=False,
+            logger=True,
+        )
 
 
 def run_once(args, seed, run_dir):
@@ -76,19 +71,22 @@ def run_once(args, seed, run_dir):
         memory_std=args.memory_std,
         context_size=args.context_size,
         prior_precision=args.prior_precision,
-        reg_weight=args.anneal_start,
+        reg_weight=args.reg_weight,
     )
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     routine = TESSARoutine(
         model=model,
         num_classes=datamodule.num_classes,
-        optim_recipe=optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay),
+        optim_recipe={
+            "optimizer": optimizer,
+            "lr_scheduler": optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs),
+        },
         eval_ood=True,
         save_in_csv=True,
     )
     trainer = make_trainer(
         args,
         run_dir,
-        callbacks=[RegularizationAnnealing(model, args.anneal_start, args.reg_weight, args.epochs)],
         gradient_clip_val=args.grad_clip,
     )
     trainer.fit(model=routine, datamodule=datamodule)
@@ -101,14 +99,13 @@ def run(args):
 
 if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
-    parser.add_argument("--reg-weight", type=float, default=1e-4)
-    parser.add_argument("--anneal-start", type=float, default=1e-5)
+    parser.add_argument("--reg-weight", type=float, default=1e-3)
     parser.add_argument("--memory-size", type=int, default=20)
-    parser.add_argument("--memory-decay", type=float, default=0.9)
-    parser.add_argument("--memory-std", type=float, default=0.01)
-    parser.add_argument("--context-size", type=int, default=128)
+    parser.add_argument("--memory-decay", type=float, default=0.99)
+    parser.add_argument("--memory-std", type=float, default=0.1)
+    parser.add_argument("--context-size", type=int, default=50)
     parser.add_argument("--prior-precision", type=float, default=10.0)
-    parser.add_argument("--weight-decay", type=float, default=0.005)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--grad-clip", type=float, default=0.0)
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
