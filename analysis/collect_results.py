@@ -1,91 +1,22 @@
-"""
-Result Collector — collect experiment results from lightning_logs or results/.
+"""Collect standard TFD-Bench experiment results from ``results/``.
 
 Usage:
-    python analysis/collect_results.py --source lightning_logs
-    python analysis/collect_results.py --source results --output results/summary.json
+    python analysis/collect_results.py
+    python analysis/collect_results.py --output results/summary.json
 """
 
 import argparse
 import csv
 import json
-import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 
 DISPLAY_METRICS = ("test/cls/Acc", "test/cal/ECE", "ood/AUROC")
-
-
-def parse_lightning_log(log_dir: Path) -> Optional[Dict[str, Any]]:
-    metrics_file = log_dir / "metrics.csv"
-    hparams_file = log_dir / "hparams.yaml"
-
-    result: Dict[str, Any] = {"log_dir": str(log_dir), "version": log_dir.name}
-
-    if hparams_file.exists():
-        import yaml
-
-        with open(hparams_file, encoding="utf-8") as f:
-            hparams = yaml.safe_load(f)
-            if hparams:
-                result["hparams"] = hparams
-
-    EXCLUDE = {"epoch", "step", "train_loss"}
-    if metrics_file.exists():
-        with open(metrics_file, encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
-        if rows:
-            metrics = {}
-            for key, value in rows[-1].items():
-                if key in EXCLUDE or not (value and value.strip()):
-                    continue
-                try:
-                    metrics[key] = float(value)
-                except ValueError:
-                    pass
-            if metrics:
-                result["metrics"] = metrics
-
-    return result if "metrics" in result else None
-
-
-def parse_json_result(json_file: Path) -> List[Dict[str, Any]]:
-    with open(json_file, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def collect_from_lightning_logs(logs_dir: str) -> List[Dict[str, Any]]:
-    logs_path = Path(logs_dir)
-    results = []
-    if not logs_path.exists():
-        print(f"Warning: {logs_dir} does not exist")
-        return results
-
-    for item in sorted(logs_path.iterdir()):
-        if not item.is_dir():
-            continue
-        if item.name.startswith("version_"):
-            r = parse_lightning_log(item)
-            if r:
-                results.append(r)
-        else:
-            method_name = item.name
-            for version_dir in sorted(item.iterdir()):
-                if version_dir.is_dir() and version_dir.name.startswith("version_"):
-                    r = parse_lightning_log(version_dir)
-                    if r:
-                        if "hparams" not in r:
-                            r["hparams"] = {}
-                        r["hparams"].setdefault("method", method_name)
-                        r["method"] = r["hparams"].get("method", method_name)
-                        r["backbone"] = r["hparams"].get("backbone", "unknown")
-                        results.append(r)
-    return results
 
 
 def _read_standard_metrics(
@@ -251,10 +182,11 @@ def save_results(results, output_path: str, fmt: str = "json"):
 
 def main():
     parser = argparse.ArgumentParser(description="Collect experiment results")
-    parser.add_argument("--source", default="lightning_logs",
-                        choices=["lightning_logs", "results", "both"])
-    parser.add_argument("--logs_dir", default=str(_PROJECT_ROOT / "lightning_logs"))
-    parser.add_argument("--results_dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument(
+        "--results-dir", "--results_dir",
+        default=str(_PROJECT_ROOT / "results"),
+        dest="results_dir",
+    )
     parser.add_argument("--output", default=str(_PROJECT_ROOT / "results" / "summary.json"))
     parser.add_argument("--format", default="json", choices=["json", "csv"])
     parser.add_argument("--test-config", default="all",
@@ -264,21 +196,14 @@ def main():
     parser.add_argument("--method", default=None)
     args = parser.parse_args()
 
-    all_results = []
-    if args.source in ("lightning_logs", "both"):
-        r = collect_from_lightning_logs(args.logs_dir)
-        print(f"lightning_logs: {len(r)} experiments")
-        all_results.extend(r)
-    if args.source in ("results", "both"):
-        r = collect_from_results_dir(
-            args.results_dir,
-            test_config=args.test_config,
-            dataset=args.dataset,
-            backbone=args.backbone,
-            method=args.method,
-        )
-        print(f"results/: {len(r)} experiments")
-        all_results.extend(r)
+    all_results = collect_from_results_dir(
+        args.results_dir,
+        test_config=args.test_config,
+        dataset=args.dataset,
+        backbone=args.backbone,
+        method=args.method,
+    )
+    print(f"results/: {len(all_results)} experiments")
 
     if not all_results:
         print("No results found.")

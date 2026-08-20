@@ -302,21 +302,20 @@ python methods/max_softmax.py \
 汇总实验结果：
 
 ```bash
-python analysis/collect_results.py --source results --output results/summary.json
+python analysis/collect_results.py
 ```
 
 默认同时汇总 clean 和所有噪声等级。只读取 clean 或指定噪声等级：
 
 ```bash
-python analysis/collect_results.py --source results --test-config clean
-python analysis/collect_results.py --source results --test-config gaussian_s3
+python analysis/collect_results.py --test-config clean
+python analysis/collect_results.py --test-config gaussian_s3
 ```
 
 也可以筛选数据集、模型或方法：
 
 ```bash
 python analysis/collect_results.py \
-  --source results \
   --dataset seu \
   --backbone resnet \
   --method edl
@@ -333,6 +332,6 @@ python analysis/generate_tables.py --input results/summary.json --format markdow
 完整生成命令：
 
 ```bash
-python analysis/collect_results.py --source results --output results/summary.json
+python analysis/collect_results.py
 python analysis/generate_tables.py --input results/summary.json --output results/table.md
 ```

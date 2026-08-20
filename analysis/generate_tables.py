@@ -162,7 +162,8 @@ def _generate_latex_group(results, metrics, highlight_best=True, caption="") -> 
     col_spec = "l" + "c" * len(metrics)
     headers = ["Method"] + [
         f"{METRIC_CONFIG.get(m, {'name': m})['name']} "
-        f"{'$\\uparrow$' if METRIC_CONFIG.get(m, {}).get('higher_better', True) else '$\\downarrow$'}"
+        + ("$\\uparrow$" if METRIC_CONFIG.get(m, {}).get("higher_better", True)
+           else "$\\downarrow$")
         for m in metrics
     ]
     lines = [r"\begin{table}[t]", r"\centering",
