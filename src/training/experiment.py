@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import shutil
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -26,9 +28,16 @@ def add_experiment_args(parser, *, checkpoint: bool = False):
     """Add the repeatability arguments shared by every method script."""
     config = load_config(parser.get_default("config"))
     training = config.get("training", {})
+    runner = config.get("runner", {})
     parser.add_argument("--n-runs", type=int, default=training.get("n_runs", 5))
     parser.add_argument("--seeds", type=int, nargs="+", default=training.get("seeds"))
     parser.add_argument("--val-split", type=float, default=training.get("val_split", 0.2))
+    parser.add_argument(
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        default=runner.get("overwrite", True),
+        help="Replace the existing result directory for this dataset/backbone/method",
+    )
     if checkpoint:
         parser.add_argument("--ckpt", type=str, default=None)
     return parser
@@ -242,6 +251,13 @@ def run_repeated(
     """Run all seeds, persist partial results, and produce mean/std summaries."""
     seeds = args.seeds if args.seeds else list(range(args.n_runs))
     out_dir = method_dir(args, method)
+    if args.overwrite and out_dir.exists():
+        output_root = Path(args.output_dir).resolve()
+        target = out_dir.resolve()
+        if target == output_root or not target.is_relative_to(output_root):
+            raise ValueError(f"Refusing to remove unsafe experiment directory: {target}")
+        shutil.rmtree(target)
+        print(f"Removed previous results: {target}")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "config.json").write_text(
         json.dumps({"method": method, "seeds": seeds, **vars(args)}, indent=2, default=str),

@@ -53,6 +53,7 @@ hardware:
 
 output:
   dir: results
+  figures_dir: figures
 
 # Optional overrides passed only to the corresponding method.
 method_args:
@@ -123,3 +124,5 @@ method_args:
 
 runner:
   continue_on_error: true
+  overwrite: true        # Replace the exact dataset/backbone/method result directory
+  generate_reports: true # After a successful run: collect results, table, and figures

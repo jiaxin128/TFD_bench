@@ -71,7 +71,11 @@ def _group_results(results: dict) -> dict:
             mean = metric_stats.get("mean") if isinstance(metric_stats, dict) else metric_stats
             if mean is None:
                 break
-            values[config["label"]] = float(mean) * config["scale"]
+            std = metric_stats.get("std", 0.0) if isinstance(metric_stats, dict) else 0.0
+            values[config["label"]] = {
+                "mean": float(mean) * config["scale"],
+                "std": float(std or 0.0) * config["scale"],
+            }
         if len(values) != len(PLOT_METRICS):
             continue
 
@@ -106,8 +110,19 @@ def _plot_metric_panels(methods: dict[str, dict[str, float]], title: str) -> plt
 
     for ax, metric_config in zip(axes, PLOT_METRICS.values()):
         label = metric_config["label"]
-        values = np.asarray([methods[method][label] for method in method_names])
-        ax.scatter(values, y, s=34, color="#3498db", zorder=3)
+        values = np.asarray([methods[method][label]["mean"] for method in method_names])
+        errors = np.asarray([methods[method][label]["std"] for method in method_names])
+        ax.errorbar(
+            values,
+            y,
+            xerr=errors,
+            fmt="o",
+            markersize=5,
+            capsize=2.5,
+            color="#3498db",
+            ecolor="#8ebfe0",
+            zorder=3,
+        )
         best_index = int(np.argmax(values) if metric_config["higher_better"] else np.argmin(values))
         ax.scatter(
             values[best_index],
@@ -156,7 +171,10 @@ def _plot_noise_trends(groups: dict, output_dir: Path, dpi: int) -> int:
         for method_index, method in enumerate(sorted(methods)):
             for ax, metric_config in zip(axes, PLOT_METRICS.values()):
                 label = metric_config["label"]
-                values = [methods[method].get(config, {}).get(label, np.nan) for config in configs]
+                values = [
+                    methods[method].get(config, {}).get(label, {}).get("mean", np.nan)
+                    for config in configs
+                ]
                 ax.plot(
                     x,
                     values,
@@ -217,8 +235,15 @@ def generate_all_plots(results: dict, output_dir: str | Path, dpi: int = 150) ->
             dpi,
         )
 
+        heatmap_values = {
+            method: {
+                label: metric["mean"]
+                for label, metric in values.items()
+            }
+            for method, values in methods.items()
+        }
         heatmap = plot_metric_heatmap(
-            methods,
+            heatmap_values,
             metrics=metric_labels,
             title=title,
             higher_better=higher_better,
@@ -264,11 +289,26 @@ def main() -> None:
     parser.add_argument("--output", default=str(_PROJECT_ROOT / "figures"))
     parser.add_argument("--dpi", type=int, default=150)
     parser.add_argument("--demo", action="store_true")
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove previously generated benchmark PNG files before plotting",
+    )
     args = parser.parse_args()
 
     if args.demo:
         generate_demo_plots(args.output, args.dpi)
     else:
+        if args.clean:
+            output = Path(args.output)
+            patterns = ("*_comparison.png", "*_heatmap.png", "noise_trends.png")
+            removed = 0
+            if output.exists():
+                for pattern in patterns:
+                    for path in output.rglob(pattern):
+                        path.unlink()
+                        removed += 1
+            print(f"Removed {removed} previous benchmark figures")
         generate_all_plots(load_results(args.results), args.output, args.dpi)
 
 

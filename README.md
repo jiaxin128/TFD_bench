@@ -106,6 +106,8 @@ python run.py --dry-run
 python run.py
 ```
 
+默认会覆盖所选数据集、模型和方法对应的旧实验目录；不会删除其他未选中的实验结果。全部实验成功后，会自动更新 `results/summary.json`、`results/table.md` 和 `figures/`。可在 `runner` 配置中通过 `overwrite` 和 `generate_reports` 关闭对应行为。
+
 `run.py` 会依次执行每个 `dataset × method × backbone` 组合。默认在某个组合失败后继续运行其他组合，并在结束时汇总失败项；可通过配置中的 `runner.continue_on_error` 修改该行为。
 
 > 并非所有方法都支持所有 backbone。`resnet` 的兼容性最完整；增加其他 backbone 前建议先用 `--dry-run` 检查实验矩阵，并单独运行一次对应方法。
@@ -352,6 +354,12 @@ python analysis/generate_tables.py
 
 ```bash
 python analysis/visualization/plot_all.py
+```
+
+对比图中的点为多个随机种子的均值，误差线为标准差。需要先清理之前生成的基准图片时使用：
+
+```bash
+python analysis/visualization/plot_all.py --clean
 ```
 
 图片默认保存到 `figures/<dataset>/<backbone>/`。`summary.json` 只包含聚合指标，
