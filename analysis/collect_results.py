@@ -30,7 +30,7 @@ def _read_standard_metrics(
         return []
     dataset, backbone, method = parts[:3]
     # Ignore stale result directories left behind after a method is renamed or
-    # removed. For example, TESSA supersedes the former ``etp`` entry point.
+    # removed.
     if not (_PROJECT_ROOT / "methods" / f"{method}.py").is_file():
         return []
 

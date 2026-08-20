@@ -44,8 +44,6 @@ METHOD_NAMES = {
     "sgld":                "MCMC-SGLD",
     "sghmc":               "MCMC-SGHMC",
     "edl":                 "EDL",
-    "tessa":               "TESSA",
-    "tessav1":             "TESSAv1",
     "conformal_aps":       "Conformal (APS)",
     "conformal_raps":      "Conformal (RAPS)",
     "conformal_thr":       "Conformal (THR)",

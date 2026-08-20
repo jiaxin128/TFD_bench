@@ -4,11 +4,9 @@
 # Run every selected dataset × method × backbone combination.
 methods:
   - edl
-  - tessa
-  # - tessav1
 
-# ResNet is supported by all methods. Add transformer, lenet, mlp, mamba,
-# lstm, or timesnet only after confirming that a method provides that variant.
+# ResNet is supported by all methods. Add transformer, lenet, mlp, lstm, or
+# timesnet only after confirming that a method provides that variant.
 backbones:
   - resnet
 
@@ -76,27 +74,6 @@ method_args:
   edl:
     reg_weight: 0.5
     loss_type: digamma
-  tessa:
-    reg_weight: 0.001
-    memory_size: 20
-    memory_decay: 0.99
-    memory_std: 0.1
-    context_size: 50
-    prior_precision: 10.0
-    weight_decay: 0.0
-    grad_clip: 0.0
-  tessav1:
-    reg_weight: 0.001
-    memory_size: 20
-    memory_decay: 0.99
-    memory_std: 0.1
-    context_size: 50
-    prior_precision: 10.0
-    feature_reg_weight: 0.05
-    feature_temperature: 0.1
-    feature_warmup_epochs: 10
-    weight_decay: 0.0
-    grad_clip: 0.0
   conformal_aps:
     alpha: 0.01
     randomized: true

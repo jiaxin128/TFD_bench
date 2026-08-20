@@ -99,7 +99,7 @@ def add_common_args(parser: argparse.ArgumentParser, config_path: str = None) ->
     parser.add_argument("--backbone", type=str, 
                         default=config.get("backbones", ["resnet"])[0] if config.get("backbones") else "resnet",
                         choices=["resnet", "lenet", "mlp", "transformer",
-                                 "mamba", "lstm", "timesnet"],
+                                 "lstm", "timesnet"],
                         help="Backbone architecture / 骨干网络架构")
     
     # Dataset - defaults from config
@@ -365,9 +365,6 @@ def get_model(backbone_name: str, num_channels: int, num_classes: int, **kwargs)
     elif backbone_name == "transformer":
         from src.models.transformer import transformer1d
         return transformer1d(in_channels=num_channels, num_classes=num_classes, **kwargs)
-    elif backbone_name == "mamba":
-        from src.models.mamba import Model as MambaModel
-        return MambaModel(in_channels=num_channels, num_classes=num_classes, **kwargs)
     elif backbone_name == "lstm":
         from src.models.lstm import LSTM1D 
         return LSTM1D(in_channels=num_channels, num_classes=num_classes, **kwargs)
@@ -383,5 +380,5 @@ def get_model(backbone_name: str, num_channels: int, num_classes: int, **kwargs)
     else:
         raise ValueError(
             f"Unknown backbone: {backbone_name}. Available: "
-            "resnet, lenet, mlp, transformer, mamba, lstm, timesnet"
+            "resnet, lenet, mlp, transformer, lstm, timesnet"
         )

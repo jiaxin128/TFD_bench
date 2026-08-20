@@ -40,17 +40,8 @@ pip install -r requirements.txt
 python -c "import torch, lightning, torchmetrics; print(torch.__version__)"
 ```
 
-[`requirements.txt`](requirements.txt) 的核心依赖版本来自当前 `fd` 环境，并额外包含：
-
-- `laplace-torch`：供 `laplace_approx` 方法使用
-- `mamba-ssm`：仅供 Mamba backbone 使用
-
-默认的 ResNet 实验不需要调用 Mamba。PyTorch、CUDA 与 `mamba-ssm` 对系统环境有较强依赖；如果安装 Mamba 时发生编译错误，可先确保 PyTorch 已安装，再关闭构建隔离重新安装：
-
-```bash
-pip install torch==2.12.1 torchvision==0.27.1
-pip install mamba-ssm==2.3.2.post1 --no-build-isolation
-```
+[`requirements.txt`](requirements.txt) 的核心依赖版本来自当前 `fd` 环境，
+其中 `laplace-torch` 供 `laplace_approx` 方法使用。
 
 ## 快速开始
 
@@ -233,58 +224,15 @@ YAML 中的下划线参数会自动转换为命令行的连字符形式，例如
 | 基线 | `max_softmax` |
 | 集成方法 | `deep_ensemble`, `packed_ensemble`, `batch_ensemble`, `snapshot_ensemble`, `checkpoint_ensemble` |
 | 贝叶斯方法 | `variational_bnn`, `swag`, `sgld`, `sghmc` |
-| 证据方法 | `edl`, `tessa`, `tessav1` |
+| 证据方法 | `edl` |
 | 共形预测 | `conformal_aps`, `conformal_raps`, `conformal_thr` |
 | 后处理/采样 | `temperature_scaling`, `laplace_approx`, `mc_dropout`, `mc_batch_norm` |
 
 方法名称与 `methods/<方法名称>.py` 一一对应。
 
-`tessa` 是本 benchmark 对重构后方法采用的名称，其模型来源是 ICLR 2022 的
-[Evidential Turing Processes](https://openreview.net/forum?id=84NMXTHYe-)（原论文名称为 ETP）。
-入口文件只保留实验组装，模型主体位于 `src/models/tessa.py`。
-
-TESSA 的主要参数：
-
-| 参数 | 含义 | 默认值 |
-|---|---|---:|
-| `reg_weight` | Dirichlet KL 正则权重 | `1e-3` |
-| `memory_size` | 特征空间中的外部 memory slot 总数 | `20` |
-| `memory_decay` | 旧 memory 的保留比例 | `0.99` |
-| `memory_std` | memory 查询时的采样标准差 | `0.1` |
-| `context_size` | 每个 batch 随机 memory context 的上限 | `50` |
-| `prior_precision` | 变分线性层的高斯先验精度 | `10.0` |
-| `weight_decay` | Adam 的权重衰减 | `0.0` |
-
-EDL 的 `reg_weight=0.5` 与 TESSA 的 `reg_weight=1e-3` 不应直接设成相同值：
-两种方法的正则项定义和数值尺度不同，因此不应直接设置成相同数值。
-
 EDL 输出的是非负 evidence，而不是普通 logits。训练时使用 `DECLoss`，验证和测试时
 先计算 `alpha = evidence + 1`，再以 Dirichlet 均值 `alpha / alpha.sum()` 作为类别概率；
 因此 EDL 的 NLL 和 ECE 不会对 evidence 直接使用 softmax。
-
-TESSA 的 memory 位于 backbone 的特征空间中：每个类别拥有独立的 memory slots，
-训练时按类别和余弦相似度更新，预测时将查询到的 memory 特征与当前样本特征拼接后输出证据。
-当前实现要求 backbone 提供 `feats_forward()` 和线性 `fc` 分类头（默认的 `resnet` 满足要求）。
-
-`tessav1` 是独立的实验方法，保留 `tessa` 的结构和结果，在此基础上增加
-prototype-contrastive 特征约束，使样本靠近同类 memory slots 并远离其他类别 slots。
-该约束仅作用于训练，不包含 temperature scaling，也不改变测试阶段的概率计算。
-其新增参数为：
-
-| 参数 | 含义 | 默认值 |
-|---|---|---:|
-| `feature_reg_weight` | 特征与同类 memory slots 的对比约束权重 | `0.05` |
-| `feature_temperature` | prototype-contrastive 相似度温度 | `0.1` |
-| `feature_warmup_epochs` | 特征约束从弱到强的 warm-up epoch 数 | `10` |
-
-两种方法分别写入 `results/<dataset>/<backbone>/tessa` 和
-`results/<dataset>/<backbone>/tessav1`，不会相互覆盖。
-
-单独运行 TESSAv1：
-
-```bash
-python methods/tessav1.py --dataset seu --data-root /mnt/d/Data/Machine/SEU --backbone resnet
-```
 
 ## 支持的模型
 
@@ -295,7 +243,6 @@ resnet
 lenet
 mlp
 transformer
-mamba
 lstm
 timesnet
 ```
