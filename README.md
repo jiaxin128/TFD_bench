@@ -1,4 +1,4 @@
-# Fault-Diagnosis Uncertainty Benchmark
+# TFD-Bench: Uncertainty Benchmark for Fault Diagnosis
 
 面向一维故障诊断信号的不确定性量化基准。项目提供统一的数据加载、训练、OOD 检测、噪声鲁棒性评估和多随机种子统计流程。
 
