@@ -183,7 +183,10 @@ class ClassificationRoutine(LightningModule):
 
         self.post_processing = post_processing
         self.log_post_processing = log_post_processing
-        if self.post_processing is not None:
+        if (
+            self.post_processing is not None
+            and getattr(self.post_processing, "model", None) is None
+        ):
             self.post_processing.set_model(self.model)
 
         self._init_metrics()

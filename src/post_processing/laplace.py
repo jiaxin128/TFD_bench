@@ -1,4 +1,4 @@
-from importlib import util
+from copy import deepcopy
 from typing import Literal
 
 from torch import Tensor, nn
@@ -6,15 +6,27 @@ from torch.utils.data import DataLoader
 
 from .abstract import PostProcessing
 
-if util.find_spec("laplace"):
+try:
     from laplace import Laplace
-
     laplace_installed = True
-else:  # coverage: ignore
+    _laplace_import_error = None
+except ImportError as error:  # coverage: ignore
+    Laplace = None
     laplace_installed = False
+    _laplace_import_error = error
 
 
 class LaplaceApprox(PostProcessing):
+    @staticmethod
+    def check_available() -> None:
+        """Fail before training when the optional Laplace stack is unavailable."""
+        if not laplace_installed:
+            raise ImportError(
+                "Laplace approximation requires the compatible packages "
+                "laplace-torch==0.2.2.2 and curvlinops-for-pytorch==2.0.1. "
+                "Install the project requirements with `pip install -r requirements.txt`."
+            ) from _laplace_import_error
+
     def __init__(
         self,
         task: Literal["classification", "regression"],
@@ -49,10 +61,7 @@ class LaplaceApprox(PostProcessing):
             <https://arxiv.org/abs/2106.14806>`_.
         """
         super().__init__()
-        if not laplace_installed:
-            raise ImportError(
-                "The optional laplace-torch library is required for LaplaceApprox."
-            )
+        self.check_available()
 
         self.pred_type = pred_type
         self.link_approx = link_approx
@@ -65,16 +74,19 @@ class LaplaceApprox(PostProcessing):
             self.set_model(model)
 
     def set_model(self, model: nn.Module) -> None:
-        super().set_model(model)
+        # Laplace is fitted and evaluated on CPU. Keep a private model copy out
+        # of nn.Module's child registry so Lightning does not migrate it when
+        # the classification routine is moved to the accelerator.
+        laplace_model = deepcopy(model).cpu().eval()
+        object.__setattr__(self, "model", laplace_model)
         self.la = Laplace(
-            model=model,
+            model=laplace_model,
             likelihood=self.task,
             subset_of_weights=self.weight_subset,
             hessian_structure=self.hessian_struct,
         )
 
     def fit(self, dataloader: DataLoader) -> None:
-        self.la.model.to('cpu')
         self.la.fit(train_loader=dataloader)
         if self.optimize_prior_precision:
             self.la.optimize_prior_precision(method="marglik")

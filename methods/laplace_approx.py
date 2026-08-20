@@ -22,6 +22,7 @@ def run_once(args, seed, run_dir):
 
 
 def run(args):
+    LaplaceApprox.check_available()
     return run_repeated(args, METHOD_NAME, run_once)
 
 

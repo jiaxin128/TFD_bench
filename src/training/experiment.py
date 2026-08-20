@@ -130,7 +130,8 @@ def train_postprocess_and_evaluate(
     """Train a base classifier, fit one post-processor, then evaluate it."""
     trainer, datamodule, model = train_base_classifier(args, run_dir)
     postprocess = build_postprocess(model, datamodule)
-    postprocess.set_model(model)
+    if getattr(postprocess, "model", None) is None:
+        postprocess.set_model(model)
     postprocess.fit(datamodule.postprocess_dataloader())
     postprocess.fit = lambda *args, **kwargs: None
     routine = ClassificationRoutine(
