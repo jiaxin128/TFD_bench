@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 HIT Aerospace Engine Intershaft Bearing Dataset
 HIT 航空发动机轴间轴承数据集
@@ -104,7 +106,7 @@ def build_df_from_files(
     Build DataFrame from multiple .npy files.
     从多个 .npy 文件构建 DataFrame。
     """
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
     
     for fname, lbl in zip(file_list, label_list):
         path = root / fname
@@ -114,8 +116,13 @@ def build_df_from_files(
         d, l = load_npy_data(path, lbl, signal_size, channels)
         all_data += d
         all_labels += l
+        all_sources += [fname] * len(d)
     
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 class HITDataModule(NoisyEvaluationMixin, TUDataModule):

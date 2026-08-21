@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 import logging
 from abc import abstractmethod
 from typing import Literal
@@ -77,13 +79,23 @@ class Scaler(PostProcessing):
 
         all_logits = []
         all_labels = []
-        with torch.no_grad():
-            for inputs, labels in tqdm(dataloader, disable=not progress):
-                logits = self.model(inputs.to(self.device))
-                all_logits.append(logits)
-                all_labels.append(labels)
-            all_logits = torch.cat(all_logits).to(self.device)
-            all_labels = torch.cat(all_labels).to(self.device)
+        # Lightning restores the module's previous training mode after test.
+        # Post-hoc calibration must nevertheless extract logits in evaluation
+        # mode; otherwise BatchNorm uses batch statistics and mutates its
+        # running buffers, producing a temperature for a different model.
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                for inputs, labels in tqdm(dataloader, disable=not progress):
+                    logits = self.model(inputs.to(self.device))
+                    all_logits.append(logits)
+                    all_labels.append(labels)
+        finally:
+            self.model.train(was_training)
+
+        all_logits = torch.cat(all_logits).to(self.device)
+        all_labels = torch.cat(all_labels).to(self.device)
 
         # Handle binary classification case
         if all_logits.dim() == 2 and all_logits.shape[1] == 1:
@@ -98,7 +110,11 @@ class Scaler(PostProcessing):
 
         if all_labels.ndim == 1:
             all_labels = all_labels.long()
-        optimizer = LBFGS(self.temperature, lr=self.lr, max_iter=self.max_iter)
+        optimizer = LBFGS(
+            self.optimization_parameters,
+            lr=self.lr,
+            max_iter=self.max_iter,
+        )
 
         def calib_eval() -> float:
             optimizer.zero_grad()
@@ -143,3 +159,8 @@ class Scaler(PostProcessing):
     @property
     @abstractmethod
     def temperature(self) -> list: ...
+
+    @property
+    def optimization_parameters(self) -> list[nn.Parameter]:
+        """Leaf parameters optimized during calibration."""
+        return self.temperature

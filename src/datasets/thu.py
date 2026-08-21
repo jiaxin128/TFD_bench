@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from pathlib import Path
 from typing import Literal
 import warnings
@@ -154,7 +156,7 @@ def build_df_from_files(
     max_windows_per_file: int | None = None,
 ) -> pd.DataFrame:
     folder = Path(root) / subfolder if subfolder else Path(root)
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
 
     for prefix, label in zip(prefixes, labels):
         for suffix in suffixes:
@@ -168,11 +170,16 @@ def build_df_from_files(
                 warnings.warn(f"[THUDataModule] 未读取到数据：{fname}")
             all_data += d
             all_labels += l
+            all_sources += [prefix.rstrip("_")] * len(d)
 
     if not all_data:
         raise RuntimeError(
             f"[THUDataModule] 未加载到任何数据 (prefixes={prefixes}, suffixes={suffixes})")
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 
@@ -350,63 +357,3 @@ class THUDataModule(NoisyEvaluationMixin, TUDataModule):
                 self._data_loader(self.get_ood_set(), training=False, shuffle=False)
             )
         return loaders
-
-
-
-if __name__ == "__main__":
-
-    from collections import Counter
-
-    ROOT = r"D:\Data\Machine\THU"
-
-    dm = THUDataModule(
-        root=ROOT,
-        batch_size=64,
-        eval_ood=True,
-        num_workers=0,
-        pin_memory=False,
-        persistent_workers=False,
-        max_windows_per_file=200,  # 每文件每类最多取 200 个窗口，按需调整总数据量
-        seed=42,
-    )
-
-    def class_dist(ds) -> dict:
-        labels = [int(ds[i][1]) for i in range(len(ds))]
-        return dict(sorted(Counter(labels).items()))
-
-    print("=" * 60)
-    print(">>> setup(fit)")
-    dm.setup("fit")
-    x0, y0 = dm.train[0]
-    print(f"  单样本 shape  : {x0.shape}  dtype={x0.dtype}")
-    print(f"  train samples : {len(dm.train)}  per-class: {class_dist(dm.train)}")
-    print(f"  val   samples : {len(dm.val)}    per-class: {class_dist(dm.val)}")
-
-    print("=" * 60)
-    print(">>> setup(test)")
-    dm.setup("test")
-    print(f"  test  samples : {len(dm.test)}   per-class: {class_dist(dm.test)}")
-    if dm.eval_ood:
-        print(f"  OOD   samples : {len(dm.ood)}    per-class: {class_dist(dm.ood)}")
-
-    print("=" * 60)
-    print("数据集摘要")
-    print(f"  input_shape   : {dm.input_shape}")
-    print(f"  num_classes   : {dm.num_classes}")
-    print(f"  train 文件    : {dm.train_suffixes}")
-    print(f"  val   文件    : {dm.val_suffixes}")
-    print(f"  test  文件    : {dm.test_suffixes}")
-    print(f"  ood   文件    : {dm.ood_suffixes}")
-    print(f"  seed          : {dm.seed}")
-
-    print("=" * 60)
-    print(">>> 可复现性验证（两次 setup 对比）")
-    dm2 = THUDataModule(
-        root=ROOT, batch_size=64, eval_ood=False,
-        num_workers=0, pin_memory=False, persistent_workers=False,
-        max_windows_per_file=200, seed=42,
-    )
-    dm2.setup("fit")
-    x1, _ = dm.train[0]
-    x2, _ = dm2.train[0]
-    print(f"  训练集第一个样本一致: {'✓' if np.allclose(x1, x2) else '✗ 不一致！'}")

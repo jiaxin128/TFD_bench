@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 PU Bearing Dataset / 帕德博恩大学轴承数据集
 
@@ -181,7 +183,7 @@ def build_df_from_files(
     Build DataFrame from files for a specific condition.
     从特定工况的文件构建DataFrame。
     """
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
     
     for bearing_class in classes:
         filepath = get_file_path(root, condition, bearing_class)
@@ -196,10 +198,15 @@ def build_df_from_files(
             d, l = data_load(str(filepath), label)
             all_data += d
             all_labels += l
+            all_sources += [bearing_class] * len(d)
         except Exception as e:
             print(f"Warning: Failed to load {filepath}: {e}")
     
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 def build_df_from_multiple_conditions(

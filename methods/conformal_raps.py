@@ -19,7 +19,9 @@ def run_once(args, seed, run_dir):
             penalty=args.penalty, regularization_rank=args.regularization_rank,
             enable_ts=args.enable_ts, device=next(model.parameters()).device,
         )
-    return train_postprocess_and_evaluate(args, run_dir, build, ood_criterion="post_processing")
+    return train_postprocess_and_evaluate(
+        args, run_dir, build, ood_criterion="conformal_set_size"
+    )
 
 
 def run(args):

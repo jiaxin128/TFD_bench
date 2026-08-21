@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from typing import Any, Literal
 
 import torch
@@ -108,10 +110,14 @@ class CategoricalNLL(Metric):
 
         where :math:`p_{i, y_i}` is the predicted probability for the true class :math:`y_i`.
         """
+        # Softmax can underflow to an exact zero for very sharp logits. Clamp
+        # only for the logarithm so NLL remains finite without changing any
+        # predicted class or probability-based metric.
+        safe_probs = probs.clamp_min(torch.finfo(probs.dtype).tiny)
         if self.reduction is None or self.reduction == "none":
-            self.values.append(F.nll_loss(torch.log(probs), target, reduction="none"))
+            self.values.append(F.nll_loss(torch.log(safe_probs), target, reduction="none"))
         else:
-            self.values += F.nll_loss(torch.log(probs), target, reduction="sum")
+            self.values += F.nll_loss(torch.log(safe_probs), target, reduction="sum")
             self.total += target.size(0)
 
     def compute(self) -> Tensor:

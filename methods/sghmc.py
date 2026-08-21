@@ -16,6 +16,7 @@ from src.training.experiment import (
     evaluate,
     load_best_weights,
     make_trainer,
+    require_ensemble_samples,
     run_repeated,
 )
 from src.utils import add_common_args, get_datamodule, get_model, load_gpu_config, print_gpu_config
@@ -37,7 +38,7 @@ def run_once(args, seed, run_dir):
 
     model = CheckpointCollector(
         base, cycle_start=args.cycle_start, cycle_length=args.cycle_length,
-        use_final_model=True,
+        use_final_model=True, max_num_estimators=args.num_estimators,
     )
     routine = ClassificationRoutine(
         model=model, num_classes=dm.num_classes, is_ensemble=True,
@@ -47,11 +48,12 @@ def run_once(args, seed, run_dir):
             burn_in_steps=args.burn_in_steps, noise_factor=args.noise_factor,
             weight_decay=1e-3,
         ),
-        eval_ood=True, ood_criterion=MutualInformationCriterion(), save_in_csv=True,
+        eval_ood=True, ood_criterion=MutualInformationCriterion(),
     )
-    trainer = make_trainer(args, run_dir)
+    trainer = make_trainer(args, run_dir, checkpoint=False)
     trainer.fit(routine, datamodule=dm)
-    return evaluate(args, trainer, routine, dm, ckpt_path="best")
+    require_ensemble_samples(model, METHOD_NAME, args.num_estimators)
+    return evaluate(args, trainer, routine, dm, ckpt_path=None)
 
 
 def run(args):
@@ -62,11 +64,12 @@ if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
     parser.add_argument("--pretrain-epochs", type=int, default=20)
     parser.add_argument("--pretrain-lr", type=float, default=1e-2)
-    parser.add_argument("--cycle-start", type=int, default=5)
+    parser.add_argument("--cycle-start", type=int, default=20)
     parser.add_argument("--cycle-length", type=int, default=5)
     parser.add_argument("--friction", type=float, default=0.05)
     parser.add_argument("--burn-in-steps", type=int, default=200)
     parser.add_argument("--noise-factor", type=float, default=1e-2)
+    parser.add_argument("--num-estimators", type=int, default=16)
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
     run(args)

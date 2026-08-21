@@ -9,10 +9,23 @@ Usage / 使用方法:
     fig = uncertainty.plot_uncertainty_distribution(id_scores, ood_scores)
 """
 
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, Tuple, List, Dict
-import matplotlib
+from typing import Optional, Tuple, Dict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+from analysis.visualization.io import (
+    discover_prediction_runs,
+    display_method,
+    finite_ood_score_pair,
+    save_figure,
+)
 
 
 def plot_uncertainty_distribution(
@@ -110,6 +123,7 @@ def plot_multi_uncertainty_comparison(
         matplotlib Figure
     """
     n_methods = len(results_dict)
+    ncols = min(ncols, n_methods)
     nrows = (n_methods + ncols - 1) // ncols
     
     if figsize is None:
@@ -208,19 +222,59 @@ def plot_violin_comparison(
     return fig
 
 
-if __name__ == "__main__":
-    # Demo / 演示
-    np.random.seed(42)
-    
-    # Generate sample data / 生成示例数据
-    id_scores = np.random.beta(2, 5, 500)  # Lower uncertainty for ID
-    ood_scores = np.random.beta(5, 2, 500)  # Higher uncertainty for OOD
-    
-    # Plot single distribution
-    fig = plot_uncertainty_distribution(
-        id_scores, ood_scores,
-        title="Sample Uncertainty Distribution"
+def generate_uncertainty_plot(
+    results_dir: str | Path,
+    dataset: str,
+    backbone: str,
+    *,
+    methods: list[str] | None = None,
+    config: str = "clean",
+) -> plt.Figure:
+    runs = discover_prediction_runs(
+        results_dir, dataset=dataset, backbone=backbone, methods=methods, config=config
     )
-    plt.savefig("uncertainty_distribution_demo.png", dpi=150, bbox_inches='tight')
-    print("Saved: uncertainty_distribution_demo.png")
-    plt.show()
+    plot_data = {}
+    for method, method_runs in runs.items():
+        pairs = [finite_ood_score_pair(arrays) for _, arrays in method_runs]
+        id_scores = [pair[0] for pair in pairs if pair[0].size]
+        ood_scores = [pair[1] for pair in pairs if pair[1].size]
+        if id_scores and ood_scores:
+            plot_data[display_method(method)] = (
+                np.concatenate(id_scores), np.concatenate(ood_scores)
+            )
+    if not plot_data:
+        raise ValueError("No finite ID/OOD scores are available for plotting.")
+    return plot_multi_uncertainty_comparison(
+        plot_data,
+        ncols=min(3, len(plot_data)),
+        title=f"{dataset.upper()} / {backbone} / {config} — Native OOD Scores",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Plot real ID/OOD score distributions.")
+    parser.add_argument("--results-dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument("--dataset", default="mgb")
+    parser.add_argument("--backbone", default="resnet")
+    parser.add_argument("--config", default="clean")
+    parser.add_argument("--methods", nargs="*")
+    parser.add_argument(
+        "--output",
+        default=str(_PROJECT_ROOT / "results" / "figures" / "ood_scores.png"),
+    )
+    parser.add_argument("--dpi", type=int, default=300)
+    args = parser.parse_args()
+    fig = generate_uncertainty_plot(
+        args.results_dir,
+        args.dataset,
+        args.backbone,
+        methods=args.methods,
+        config=args.config,
+    )
+    path = save_figure(fig, args.output, args.dpi)
+    plt.close(fig)
+    print(f"Saved: {path}")
+
+
+if __name__ == "__main__":
+    main()

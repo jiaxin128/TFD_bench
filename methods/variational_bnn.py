@@ -38,7 +38,7 @@ def run_once(args, seed, run_dir):
             model=model, num_classes=dm.num_classes, is_ensemble=True,
             loss=ELBOLoss(model, nn.CrossEntropyLoss(), args.kl_weight, args.num_samples),
             optim_recipe=optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-3),
-            eval_ood=True, ood_criterion=criterion, save_in_csv=True,
+            eval_ood=True, ood_criterion=criterion,
         )
     return fit_and_evaluate(args, run_dir, build)
 
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
     parser.add_argument("--kl-weight", type=float, default=1e-4)
     parser.add_argument("--num-samples", type=int, default=3)
-    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="entropy")
+    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="mi")
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
     run(args)

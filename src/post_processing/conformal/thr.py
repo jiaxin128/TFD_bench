@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from typing import Literal
 
 import torch
@@ -72,4 +74,4 @@ class ConformalClsTHR(Conformal):
         pred_set = probs >= 1.0 - self.quantile
         top1 = torch.argmax(probs, dim=1, keepdim=True)
         pred_set.scatter_(1, top1, True)  # Always include top-1 class
-        return pred_set.float() / pred_set.sum(dim=1, keepdim=True)
+        return pred_set

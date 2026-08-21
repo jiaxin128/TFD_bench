@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 import sys, warnings
 
 warnings.filterwarnings('ignore')
@@ -132,7 +134,7 @@ def _subdir_for(fname: str) -> str:
 def build_df_from_files(root: str | Path, file_list, label_list,
                         max_per_file: int | None = None) -> pd.DataFrame:
     root = Path(root)
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
 
     for fname, lbl in zip(file_list, label_list):
         path = root / _subdir_for(fname) / fname
@@ -142,8 +144,13 @@ def build_df_from_files(root: str | Path, file_list, label_list,
             l = l[:len(d)]
         all_data += d
         all_labels += l
+        all_sources += [fname] * len(d)
 
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 def build_split_by_time(root: str | Path, file_list, label_list,
@@ -369,28 +376,3 @@ class SEUDataModule(NoisyEvaluationMixin, TUDataModule):
             dataloaders.append(
                 self._data_loader(self.get_shift_set(), training=False, shuffle=False))
         return dataloaders
-
-
-if __name__ == "__main__":
-    import torch
-
-    for mode in ["random", "temporal"]:
-        print(f"\n{'=' * 60}\n  split_mode = {mode}\n{'=' * 60}")
-        fingerprints = []
-        for s in [0, 1, 2]:
-            torch.manual_seed(s)
-            np.random.seed(s)
-            dm = SEUDataModule(root="/mnt/d/Data/Machine/SEU", batch_size=64,
-                               val_split=0.2, eval_ood=True, split_mode=mode)
-            dm.setup("test")
-            print(f"\n--- global seed {s} ---")
-            print(dm.split_summary())
-            fp = hashlib.md5(
-                str(dm.val_df["label"].tolist()
-                    + [float(a.sum()) for a in dm.val_df["data"]]).encode()
-            ).hexdigest()[:12]
-            fingerprints.append(fp)
-            print("val fingerprint:", fp)
-
-        print("\n划分是否稳定:",
-              "是" if len(set(fingerprints)) == 1 else "否 —— 仍受全局随机状态影响")

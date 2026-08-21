@@ -27,7 +27,7 @@ def run_once(args, seed, run_dir):
         model=model, num_classes=datamodule.num_classes,
         loss=nn.CrossEntropyLoss(),
         optim_recipe=optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-3),
-        eval_ood=True, ood_criterion=MaxSoftmaxCriterion(), save_in_csv=True,
+        eval_ood=True, ood_criterion=MaxSoftmaxCriterion(),
     )
     trainer = make_trainer(args, run_dir)
     if args.ckpt is None:

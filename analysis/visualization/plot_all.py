@@ -1,9 +1,7 @@
 """Generate benchmark comparison figures from ``results/summary.json``.
 
-The summary contains aggregated metrics rather than per-sample predictions, so
-this entry point produces method comparisons and noise-trend figures. ROC,
-reliability, and uncertainty-distribution helpers remain available as separate
-modules when per-sample arrays are available.
+Aggregate figures use ``summary.json``. If current per-seed prediction artifacts
+are available, this entry point also produces diagnostic figures.
 """
 
 from __future__ import annotations
@@ -28,9 +26,11 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 from analysis.generate_tables import METHOD_NAMES
 from analysis.visualization.comparison import plot_metric_heatmap
-from analysis.visualization.reliability import plot_reliability_diagram
-from analysis.visualization.roc import plot_roc_and_pr
-from analysis.visualization.uncertainty import plot_uncertainty_distribution
+from analysis.visualization.reliability import generate_reliability_plot
+from analysis.visualization.risk_coverage import generate_risk_coverage_plot
+from analysis.visualization.roc import generate_roc_plot
+from analysis.visualization.seed_stability import generate_seed_stability_plot
+from analysis.visualization.uncertainty import generate_uncertainty_plot
 
 
 PLOT_METRICS = {
@@ -38,6 +38,8 @@ PLOT_METRICS = {
     "test/cal/ECE": {"label": "ECE", "scale": 100, "higher_better": False},
     "ood/AUROC": {"label": "AUROC", "scale": 100, "higher_better": True},
 }
+
+CONFORMAL_METHODS = {"conformal_aps", "conformal_raps", "conformal_thr"}
 
 
 def load_results(path: str | Path) -> dict:
@@ -153,63 +155,62 @@ def _plot_metric_panels(methods: dict[str, dict[str, float]], title: str) -> plt
 
 
 def _plot_noise_trends(groups: dict, output_dir: Path, dpi: int) -> int:
-    by_benchmark = defaultdict(lambda: defaultdict(dict))
+    by_benchmark = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    clean = defaultdict(dict)
     for (dataset, backbone, config), methods in groups.items():
+        if config == "clean":
+            clean[(dataset, backbone)].update(methods)
+            continue
+        match = re.fullmatch(r"(.+)_s(\d+)", config)
+        if not match:
+            continue
         for method, values in methods.items():
-            by_benchmark[(dataset, backbone)][method][config] = values
+            by_benchmark[(dataset, backbone)][match.group(1)][method][int(match.group(2))] = values
 
     count = 0
-    for (dataset, backbone), methods in sorted(by_benchmark.items()):
-        configs = sorted(
-            {config for method_values in methods.values() for config in method_values},
-            key=_config_sort_key,
-        )
-        x = np.arange(len(configs))
-        fig, axes = plt.subplots(1, 3, figsize=(18, 7), sharex=True)
-        colors = plt.cm.tab20(np.linspace(0, 1, max(len(methods), 1)))
-
-        for method_index, method in enumerate(sorted(methods)):
+    for (dataset, backbone), noise_types in sorted(by_benchmark.items()):
+        for noise, methods in sorted(noise_types.items()):
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharex=True)
+            colors = plt.cm.tab20(np.linspace(0, 1, max(len(methods), 1)))
+            for method_index, method in enumerate(sorted(methods)):
+                severities = dict(methods[method])
+                if method in clean[(dataset, backbone)]:
+                    severities[0] = clean[(dataset, backbone)][method]
+                x = np.asarray(sorted(severities))
+                for ax, metric_config in zip(axes, PLOT_METRICS.values()):
+                    label = metric_config["label"]
+                    means = np.asarray([severities[s][label]["mean"] for s in x])
+                    stds = np.asarray([severities[s][label]["std"] for s in x])
+                    ax.plot(x, means, marker="o", linewidth=1.4, color=colors[method_index], label=method)
+                    ax.fill_between(x, means - stds, means + stds, color=colors[method_index], alpha=0.08)
             for ax, metric_config in zip(axes, PLOT_METRICS.values()):
-                label = metric_config["label"]
-                values = [
-                    methods[method].get(config, {}).get(label, {}).get("mean", np.nan)
-                    for config in configs
-                ]
-                ax.plot(
-                    x,
-                    values,
-                    marker="o",
-                    markersize=3,
-                    linewidth=1.4,
-                    color=colors[method_index],
-                    label=method,
-                )
-
-        for ax, metric_config in zip(axes, PLOT_METRICS.values()):
-            direction = "↑" if metric_config["higher_better"] else "↓"
-            ax.set_title(f"{metric_config['label']} {direction}")
-            ax.set_ylabel("Percent (%)")
-            ax.set_xticks(x)
-            ax.set_xticklabels(configs, rotation=35, ha="right")
-            ax.grid(True, alpha=0.3)
-
-        handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(
-            handles,
-            labels,
-            loc="lower center",
-            ncol=min(5, max(1, len(labels))),
-            fontsize=8,
-        )
-        fig.suptitle(f"{dataset} / {backbone} — Noise Robustness", fontsize=14)
-        fig.tight_layout(rect=(0, 0.16, 1, 0.95))
-        path = output_dir / _safe_name(dataset) / _safe_name(backbone) / "noise_trends.png"
-        _save_figure(fig, path, dpi)
-        count += 1
+                direction = "↑" if metric_config["higher_better"] else "↓"
+                ax.set(title=f"{metric_config['label']} {direction}", xlabel="Severity (0 = clean)", ylabel="Percent (%)")
+                ax.set_xticks(range(6))
+                ax.grid(True, alpha=0.3)
+            axes[-1].legend(fontsize=8, bbox_to_anchor=(1.02, 1), loc="upper left")
+            fig.suptitle(f"{dataset} / {backbone} — {noise}", fontsize=14)
+            fig.tight_layout(rect=(0, 0, 0.9, 0.95))
+            path = output_dir / _safe_name(dataset) / _safe_name(backbone) / f"noise_{_safe_name(noise)}.png"
+            _save_figure(fig, path, dpi)
+            count += 1
     return count
 
 
-def generate_all_plots(results: dict, output_dir: str | Path, dpi: int = 150) -> None:
+def generate_all_plots(
+    results: dict,
+    output_dir: str | Path,
+    dpi: int = 150,
+    results_dir: str | Path | None = None,
+    exclude_methods: set[str] | None = None,
+) -> None:
+    excluded = set(exclude_methods or ())
+    if excluded:
+        results = {
+            key: stats
+            for key, stats in results.items()
+            if stats.get("method") not in excluded
+        }
     output_path = Path(output_dir)
     groups = _group_results(results)
     if not groups:
@@ -252,43 +253,64 @@ def generate_all_plots(results: dict, output_dir: str | Path, dpi: int = 150) ->
         figure_count += 2
 
     figure_count += _plot_noise_trends(groups, output_path, dpi)
+    artifact_root = Path(results_dir) if results_dir else _PROJECT_ROOT / "results"
+    clean_benchmarks = sorted({(dataset, backbone) for dataset, backbone, config in groups if config == "clean"})
+    diagnostics = (
+        ("reliability.png", generate_reliability_plot),
+        ("roc_pr.png", generate_roc_plot),
+        ("ood_scores.png", generate_uncertainty_plot),
+        ("risk_coverage.png", generate_risk_coverage_plot),
+        ("seed_stability.png", generate_seed_stability_plot),
+    )
+    for dataset, backbone in clean_benchmarks:
+        group_dir = output_path / _safe_name(dataset) / _safe_name(backbone)
+        diagnostic_methods = sorted({
+            stats.get("method")
+            for stats in results.values()
+            if stats.get("dataset") == dataset
+            and stats.get("backbone") == backbone
+            and stats.get("config", "clean") == "clean"
+            and stats.get("method")
+        })
+        for filename, generator in diagnostics:
+            try:
+                fig = generator(
+                    artifact_root,
+                    dataset,
+                    backbone,
+                    config="clean",
+                    methods=diagnostic_methods,
+                )
+            except FileNotFoundError as error:
+                print(f"Skipped {dataset}/{backbone}/{filename}: {error}")
+                break
+            except (KeyError, ValueError) as error:
+                print(f"Skipped {dataset}/{backbone}/{filename}: {error}")
+                continue
+            _save_figure(fig, group_dir / filename, dpi)
+            figure_count += 1
     print(f"Generated {figure_count} figures in {output_path}")
-
-
-def generate_demo_plots(output_dir: str | Path, dpi: int = 150) -> None:
-    """Generate examples for helpers that require per-sample arrays."""
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(42)
-
-    confidences = rng.beta(5, 2, 1000)
-    correctness = rng.binomial(1, confidences * 0.85)
-    fig = plot_reliability_diagram(confidences, correctness, title="Reliability Diagram")
-    _save_figure(fig, output_path / "demo_reliability.png", dpi)
-
-    id_scores = rng.beta(2, 5, 500)
-    ood_scores = rng.beta(5, 2, 500)
-    fig = plot_uncertainty_distribution(id_scores, ood_scores)
-    _save_figure(fig, output_path / "demo_uncertainty.png", dpi)
-
-    labels = np.concatenate([np.zeros(500), np.ones(500)])
-    roc_data = {
-        "Method A": (labels, np.concatenate([id_scores, ood_scores])),
-        "Method B": (
-            labels,
-            np.concatenate([rng.beta(3, 4, 500), rng.beta(4, 3, 500)]),
-        ),
-    }
-    fig = plot_roc_and_pr(roc_data, title="OOD Detection")
-    _save_figure(fig, output_path / "demo_roc_pr.png", dpi)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", default=str(_PROJECT_ROOT / "results" / "summary.json"))
-    parser.add_argument("--output", default=str(_PROJECT_ROOT / "figures"))
+    parser.add_argument("--results-dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument(
+        "--output", default=str(_PROJECT_ROOT / "results" / "figures")
+    )
     parser.add_argument("--dpi", type=int, default=150)
-    parser.add_argument("--demo", action="store_true")
+    parser.add_argument(
+        "--include-conformal",
+        action="store_true",
+        help="Include conformal APS/RAPS/THR in comparison and diagnostic figures",
+    )
+    parser.add_argument(
+        "--exclude-methods",
+        nargs="*",
+        default=[],
+        help="Additional method identifiers to exclude from every figure",
+    )
     parser.add_argument(
         "--clean",
         action="store_true",
@@ -296,20 +318,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.demo:
-        generate_demo_plots(args.output, args.dpi)
-    else:
-        if args.clean:
-            output = Path(args.output)
-            patterns = ("*_comparison.png", "*_heatmap.png", "noise_trends.png")
-            removed = 0
-            if output.exists():
-                for pattern in patterns:
-                    for path in output.rglob(pattern):
-                        path.unlink()
-                        removed += 1
-            print(f"Removed {removed} previous benchmark figures")
-        generate_all_plots(load_results(args.results), args.output, args.dpi)
+    if args.clean:
+        output = Path(args.output)
+        removed = 0
+        if output.exists():
+            for path in output.rglob("*.png"):
+                path.unlink()
+                removed += 1
+        print(f"Removed {removed} previous benchmark figures")
+    excluded = set(args.exclude_methods)
+    if not args.include_conformal:
+        excluded.update(CONFORMAL_METHODS)
+    if excluded:
+        print(f"Excluded methods: {', '.join(sorted(excluded))}")
+    generate_all_plots(
+        load_results(args.results),
+        args.output,
+        args.dpi,
+        args.results_dir,
+        excluded,
+    )
 
 
 if __name__ == "__main__":

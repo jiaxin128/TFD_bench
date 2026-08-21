@@ -1,4 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from collections.abc import Callable
+from functools import partial
 from typing import Literal
 
 from torch import Tensor, nn
@@ -12,6 +15,11 @@ from src.models.wrappers.batch_ensemble import BatchEnsemble
 from src.models.wrappers.stochastic import StochasticModel
 
 __all__ = ["resnet1d", "batchensemble_resnet1d", "packed_resnet1d",  "bayesian_resnet1d"]
+
+
+def _packed_batch_norm1d(num_features: int, alpha: float) -> nn.BatchNorm1d:
+    """Batch-normalize all packed channels independently."""
+    return nn.BatchNorm1d(int(num_features * alpha))
 
 class _BasicBlock(nn.Module):
     expansion = 1
@@ -241,13 +249,15 @@ def packed_resnet1d(
     in_channels: int,
     num_classes: int,
     num_estimators: int = 4,
-    alpha: float = 2,
+    alpha: float = 4,
     gamma: float = 1,
     activation: Callable = F.relu,
-    norm: type[nn.Module] = nn.Identity,
+    norm: type[nn.Module] | None = None,
     groups: int = 1,
     dropout_rate: float = 0.0,
 ):
+    if norm is None:
+        norm = partial(_packed_batch_norm1d, alpha=alpha)
     return _resnet1d(
         stochastic=False,
         in_channels=in_channels,
@@ -306,4 +316,3 @@ def bayesian_resnet1d(
         groups=groups,
         dropout_rate=dropout_rate,
     )
-

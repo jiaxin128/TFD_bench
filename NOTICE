@@ -1,0 +1,13 @@
+TFD-Bench
+Copyright 2026 TFD-Bench contributors
+
+Licensed under the Apache License, Version 2.0.
+
+This product includes software adapted from the TorchUncertainty project
+(https://github.com/torch-uncertainty/torch-uncertainty),
+Copyright 2023-2026 Adrien Lafage and Olivier Laurent,
+licensed under the Apache License, Version 2.0.
+
+TFD-Bench modifies and specializes those components for one-dimensional
+fault-diagnosis uncertainty benchmarking. TorchUncertainty is not responsible
+for these modifications.

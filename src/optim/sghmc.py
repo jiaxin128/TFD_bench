@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from collections.abc import Callable
 
 import torch
@@ -42,7 +44,6 @@ class SGHMC(Optimizer):
             "weight_decay": weight_decay,
         }
         self.burn_in_steps = burn_in_steps
-        self.burnt_in = torch.tensor(0, dtype=torch.long)
         super().__init__(params, defaults)
 
     def step(
@@ -57,6 +58,8 @@ class SGHMC(Optimizer):
             friction = group["friction"]
             weight_decay = group["weight_decay"]
             noise_factor = group["noise_factor"]
+            group_step = group.setdefault("sghmc_step", 0)
+            update_burn_in = burn_in or group_step < self.burn_in_steps
 
             for p in group["params"]:
                 if p.grad is None:
@@ -81,7 +84,7 @@ class SGHMC(Optimizer):
                 if weight_decay != 0:
                     d_p.add_(p.data, alpha=weight_decay)
 
-                if self.burnt_in < self.burn_in_steps:
+                if update_burn_in:
                     # update the moving average window according to Eq. 9 in [2] left equation
                     tau.add_(-(tau * g**2) / (v_hat + self.eps) + 1)
                     # compute tau inverse
@@ -90,8 +93,6 @@ class SGHMC(Optimizer):
                     g.add_(-tau_inv * g + tau_inv * d_p)
                     # update the uncentered variance of the gradient, Eq. 8 in [2]
                     v_hat.add_(-tau_inv * v_hat + tau_inv * d_p**2)
-                    self.burnt_in += 1
-
                 v_inv_sqrt = 1 / (v_hat.sqrt() + self.eps)
 
                 noise_var = 2 * lr**2 * v_inv_sqrt * friction - lr**4
@@ -107,5 +108,8 @@ class SGHMC(Optimizer):
 
                 # update parameter, Eq. 10 in [2] left equation
                 p.data.add_(momentum)
+
+            # Burn-in counts optimizer updates, not individual parameter tensors.
+            group["sghmc_step"] = group_step + 1
 
         return loss

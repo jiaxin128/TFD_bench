@@ -1,5 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from abc import ABC, abstractmethod
 from enum import Enum
+import math
 
 import torch
 from torch import Tensor, nn
@@ -150,6 +153,16 @@ class PostProcessingCriterion(MaxSoftmaxCriterion):
     input_type = OODCriterionInputType.POST_PROCESSING
 
 
+class ConformalSetSizeCriterion(TUOODCriterion):
+    """Use prediction-set cardinality as conformal uncertainty."""
+
+    input_type = OODCriterionInputType.POST_PROCESSING
+    single_only = True
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        return inputs.bool().sum(dim=-1).float()
+
+
 class EntropyCriterion(TUOODCriterion):
     input_type = OODCriterionInputType.ESTIMATOR_PROB
 
@@ -182,35 +195,16 @@ class EntropyCriterion(TUOODCriterion):
 
 
 class EvidentialCriterion(TUOODCriterion):
+    """EDL vacuity score K/S computed from raw DEC outputs."""
+
     input_type = OODCriterionInputType.LOGIT
     single_only = True
 
-    def __init__(self):
-        super().__init__()
-
     def forward(self, inputs: Tensor) -> Tensor:
-        # Convert evidence -> Dirichlet α
-        alpha = torch.relu(inputs) + 1
-        S = alpha.sum(dim=-1)
-        K = alpha.shape[-1]
-
-        return (K / S).squeeze(-1)
-
-
-class EvidentialPostCriterion(TUOODCriterion):
-    input_type = OODCriterionInputType.POST_PROCESSING
-    single_only = True
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, inputs: Tensor) -> Tensor:
-        # Convert evidence -> Dirichlet α
-        alpha = torch.relu(inputs) + 1
-        S = alpha.sum(dim=-1)
-        K = alpha.shape[-1]
-
-        return (K / S).squeeze(-1)
+        alpha = torch.relu(inputs) + 1.0
+        strength = alpha.sum(dim=-1)
+        num_classes = alpha.shape[-1]
+        return (num_classes / strength).squeeze(-1)
 
 
 class MutualInformationCriterion(TUOODCriterion):
@@ -245,7 +239,12 @@ class MutualInformationCriterion(TUOODCriterion):
         Returns:
             Tensor: Mutual information for each sample.
         """
-        return self.mi_metric(inputs)
+        # Mutual information is bounded by log(C), not by 1. TorchMetrics
+        # interprets values outside [0, 1] as logits when computing BinaryAUROC,
+        # which can otherwise make the result depend on the test batch split.
+        num_classes = inputs.size(-1)
+        normalized_mi = self.mi_metric(inputs) / math.log(num_classes)
+        return normalized_mi.clamp_(0.0, 1.0)
 
 
 class VariationRatioCriterion(TUOODCriterion):
@@ -306,6 +305,8 @@ def get_ood_criterion(ood_criterion: type[TUOODCriterion] | str) -> TUOODCriteri
             return MaxSoftmaxCriterion()
         if ood_criterion == "post_processing":
             return PostProcessingCriterion()
+        if ood_criterion == "conformal_set_size":
+            return ConformalSetSizeCriterion()
         if ood_criterion == "entropy":
             return EntropyCriterion()
         if ood_criterion == "evidential":
@@ -316,6 +317,7 @@ def get_ood_criterion(ood_criterion: type[TUOODCriterion] | str) -> TUOODCriteri
             return VariationRatioCriterion()
         raise ValueError(
             "The OOD criterion must be one of 'msp', 'logit', 'energy', 'entropy',"
+            " 'evidential', 'conformal_set_size', 'post_processing',"
             f" 'mutual_information' or 'variation_ratio'. Got {ood_criterion}."
         )
     if isinstance(ood_criterion, type):

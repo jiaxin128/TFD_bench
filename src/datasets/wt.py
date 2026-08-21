@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 WT (Wind Turbine) Gearbox Dataset Module.
 
@@ -134,7 +136,7 @@ def data_load(filepath: str, label: int, channel: int = DEFAULT_CHANNEL):
 def build_df_from_files(root: str | Path, file_list: list):
     """Build a DataFrame from a list of file tuples."""
     root = Path(root)
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
 
     for folder, filename, label in file_list:
         filepath = root / folder / filename
@@ -144,8 +146,13 @@ def build_df_from_files(root: str | Path, file_list: list):
         d, l = data_load(str(filepath), label)
         all_data += d
         all_labels += l
+        all_sources += [folder] * len(d)
 
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 # ============================================================================

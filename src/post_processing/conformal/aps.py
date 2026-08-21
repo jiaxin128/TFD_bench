@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from typing import Literal
 
 import torch
@@ -105,4 +107,7 @@ class ConformalClsAPS(Conformal):
         """Compute the prediction set for each input."""
         probs = self.model_forward(inputs)
         pred_set = self._calculate_all_labels(probs) <= self.quantile
-        return pred_set.float() / pred_set.sum(dim=1, keepdim=True)
+        # A conformal prediction is a set indicator, not a probability vector.
+        # Keeping the binary mask also permits valid empty sets and preserves
+        # their true cardinality for SetSize and OOD scoring.
+        return pred_set

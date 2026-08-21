@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 Shared utilities for benchmark scripts.
 Benchmark 脚本的共享工具模块。

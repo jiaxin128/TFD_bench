@@ -24,6 +24,8 @@ METRIC_CONFIG = {
     "test/cal/ECE":     {"name": "ECE",           "higher_better": False, "format": ".2f", "scale": 100},
     "test/cal/aECE":    {"name": "aECE",          "higher_better": False, "format": ".4f", "scale": 1},
     "ood/AUROC":        {"name": "AUROC",         "higher_better": True,  "format": ".2f", "scale": 100},
+    "ood/overall_AUROC":{"name": "Overall AUROC", "higher_better": True,  "format": ".2f", "scale": 100},
+    "ood/macro_AUROC":  {"name": "Macro AUROC",   "higher_better": True,  "format": ".2f", "scale": 100},
     "ood/AUPR":         {"name": "AUPR",          "higher_better": True,  "format": ".2f", "scale": 100},
     "ood/FPR95":        {"name": "FPR95",         "higher_better": False, "format": ".2f", "scale": 100},
     "test/sc/AURC":     {"name": "AURC",          "higher_better": False, "format": ".4f", "scale": 1},
@@ -31,6 +33,18 @@ METRIC_CONFIG = {
     "test/sc/Cov@5Risk":{"name": "Cov@5%Risk",   "higher_better": True,  "format": ".2f", "scale": 100},
     "test/sc/Risk@80Cov":{"name":"Risk@80%Cov",  "higher_better": False, "format": ".4f", "scale": 1},
 }
+
+
+def _metric_config(metric: str) -> dict[str, Any]:
+    if metric.startswith("ood/source_AUROC/"):
+        source = metric.removeprefix("ood/source_AUROC/")
+        return {
+            "name": f"AUROC ({source})",
+            "higher_better": True,
+            "format": ".2f",
+            "scale": 100,
+        }
+    return METRIC_CONFIG.get(metric, {"name": metric})
 
 METHOD_NAMES = {
     "max_softmax":         "Max Softmax",
@@ -74,7 +88,7 @@ def _fmt(mean, std, config, highlight, fmt_type):
 def _best(results, metrics):
     best = {}
     for metric in metrics:
-        higher = METRIC_CONFIG.get(metric, {}).get("higher_better", True)
+        higher = _metric_config(metric).get("higher_better", True)
         best_key, best_val = None, None
         for key, stats in results.items():
             ms = stats.get("metrics", {}).get(metric)
@@ -130,7 +144,7 @@ def generate_markdown_table(results, metrics, highlight_best=True) -> str:
 def _generate_markdown_group(results, metrics, highlight_best=True) -> str:
     best = _best(results, metrics) if highlight_best else {}
     headers = ["Method"] + [
-        f"{METRIC_CONFIG.get(m, {'name': m})['name']} {'↑' if METRIC_CONFIG.get(m, {}).get('higher_better', True) else '↓'}"
+        f"{_metric_config(m)['name']} {'↑' if _metric_config(m).get('higher_better', True) else '↓'}"
         for m in metrics
     ]
     lines = [
@@ -142,7 +156,7 @@ def _generate_markdown_group(results, metrics, highlight_best=True) -> str:
         row = [method]
         for metric in metrics:
             ms = stats.get("metrics", {}).get(metric)
-            row.append(_fmt(ms["mean"], ms["std"], METRIC_CONFIG.get(metric, {}),
+            row.append(_fmt(ms["mean"], ms["std"], _metric_config(metric),
                             best.get(metric) == key and highlight_best, "markdown") if ms else "-")
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
@@ -160,8 +174,8 @@ def _generate_latex_group(results, metrics, highlight_best=True, caption="") -> 
     best = _best(results, metrics) if highlight_best else {}
     col_spec = "l" + "c" * len(metrics)
     headers = ["Method"] + [
-        f"{METRIC_CONFIG.get(m, {'name': m})['name']} "
-        + ("$\\uparrow$" if METRIC_CONFIG.get(m, {}).get("higher_better", True)
+        f"{_metric_config(m)['name']} "
+        + ("$\\uparrow$" if _metric_config(m).get("higher_better", True)
            else "$\\downarrow$")
         for m in metrics
     ]
@@ -174,7 +188,7 @@ def _generate_latex_group(results, metrics, highlight_best=True, caption="") -> 
         row = [method]
         for metric in metrics:
             ms = stats.get("metrics", {}).get(metric)
-            row.append(_fmt(ms["mean"], ms["std"], METRIC_CONFIG.get(metric, {}),
+            row.append(_fmt(ms["mean"], ms["std"], _metric_config(metric),
                             best.get(metric) == key and highlight_best, "latex") if ms else "-")
         lines.append(" & ".join(row) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
@@ -193,7 +207,7 @@ def _generate_html_group(results, metrics, highlight_best=True) -> str:
     best = _best(results, metrics) if highlight_best else {}
     lines = ['<table border="1" style="border-collapse:collapse"><tr><th>Method</th>']
     for m in metrics:
-        cfg = METRIC_CONFIG.get(m, {"name": m})
+        cfg = _metric_config(m)
         lines.append(f"<th>{cfg['name']} {'↑' if cfg.get('higher_better', True) else '↓'}</th>")
     lines.append("</tr>")
     for key, stats in results.items():
@@ -201,7 +215,7 @@ def _generate_html_group(results, metrics, highlight_best=True) -> str:
         lines.append(f"<tr><td>{method}</td>")
         for metric in metrics:
             ms = stats.get("metrics", {}).get(metric)
-            val = _fmt(ms["mean"], ms["std"], METRIC_CONFIG.get(metric, {}),
+            val = _fmt(ms["mean"], ms["std"], _metric_config(metric),
                        best.get(metric) == key and highlight_best, "html") if ms else "-"
             lines.append(f"<td>{val}</td>")
         lines.append("</tr>")
@@ -238,7 +252,11 @@ def main():
         table = generate_html_table(results, metrics, highlight)
 
     suffix = {"markdown": "md", "latex": "tex", "html": "html"}[args.format]
-    output = Path(args.output) if args.output else _PROJECT_ROOT / "results" / f"table.{suffix}"
+    output = (
+        Path(args.output)
+        if args.output
+        else _PROJECT_ROOT / "results" / "tables" / f"table.{suffix}"
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(table, encoding="utf-8")
     print(f"Saved: {output}")

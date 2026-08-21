@@ -9,10 +9,24 @@ Usage / 使用方法:
     fig = roc.plot_roc_curves(results_dict)
 """
 
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, Dict
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+from analysis.visualization.io import (
+    discover_prediction_runs,
+    display_method,
+    finite_ood_score_pair,
+    save_figure,
+)
 
 
 def plot_roc_curves(
@@ -152,38 +166,140 @@ def compute_fpr_at_tpr(labels: np.ndarray, scores: np.ndarray, target_tpr: float
     Returns:
         FPR at target TPR
     """
-    fpr, tpr, _ = roc_curve(labels, scores)
-    idx = np.argmin(np.abs(tpr - target_tpr))
-    return fpr[idx]
+    labels = np.asarray(labels).reshape(-1).astype(bool)
+    scores = np.asarray(scores).reshape(-1)
+    positives = labels.sum()
+    negatives = (~labels).sum()
+    if positives == 0 or negatives == 0:
+        return float("nan")
+    order = np.argsort(-scores, kind="stable")
+    sorted_scores = scores[order]
+    sorted_labels = labels[order]
+    threshold_idx = np.r_[np.flatnonzero(sorted_scores[1:] != sorted_scores[:-1]), len(labels) - 1]
+    true_positive = np.cumsum(sorted_labels)[threshold_idx]
+    false_positive = threshold_idx + 1 - true_positive
+    recall = true_positive / positives
+    cutoff = np.flatnonzero(recall >= target_tpr)[0]
+    return float(false_positive[cutoff] / negatives)
+
+
+def plot_roc_pr_runs(runs: dict, title: str) -> plt.Figure:
+    """Plot seed-wise curves with the mean and one-standard-deviation band."""
+    fig, (roc_ax, pr_ax) = plt.subplots(1, 2, figsize=(14, 5.5))
+    roc_grid = np.linspace(0, 1, 301)
+    recall_grid = np.linspace(0, 1, 301)
+    colors = plt.cm.tab20(np.linspace(0, 1, max(len(runs), 1)))
+
+    for color, (method, method_runs) in zip(colors, sorted(runs.items())):
+        tprs, precisions, aucs, aps, fpr95s = [], [], [], [], []
+        skipped_seeds = []
+        for seed, arrays in method_runs:
+            id_scores, ood_scores = finite_ood_score_pair(arrays)
+            if id_scores.size == 0 or ood_scores.size == 0:
+                skipped_seeds.append(seed)
+                continue
+            labels = np.r_[np.zeros(id_scores.size), np.ones(ood_scores.size)]
+            scores = np.r_[id_scores, ood_scores]
+            fpr, tpr, _ = roc_curve(labels, scores)
+            precision, recall, _ = precision_recall_curve(labels, scores)
+            roc_ax.plot(fpr, tpr, color=color, linewidth=0.7, alpha=0.22)
+            pr_ax.plot(recall, precision, color=color, linewidth=0.7, alpha=0.22)
+            tprs.append(np.interp(roc_grid, fpr, tpr))
+            precisions.append(np.interp(recall_grid, recall[::-1], precision[::-1]))
+            aucs.append(auc(fpr, tpr))
+            aps.append(average_precision_score(labels, scores))
+            fpr95s.append(compute_fpr_at_tpr(labels, scores))
+
+        if skipped_seeds:
+            print(f"Skipped {method} ROC seeds with no finite ID/OOD scores: {skipped_seeds}")
+        if not tprs:
+            print(f"Skipped {method} ROC: no valid runs")
+            continue
+
+        tprs = np.asarray(tprs)
+        precisions = np.asarray(precisions)
+        roc_mean, roc_std = tprs.mean(axis=0), tprs.std(axis=0)
+        pr_mean, pr_std = precisions.mean(axis=0), precisions.std(axis=0)
+        label = (
+            f"{display_method(method)} "
+            f"(AUROC={np.mean(aucs):.3f}, FPR95={np.mean(fpr95s):.3f})"
+        )
+        roc_ax.plot(roc_grid, roc_mean, color=color, linewidth=2, label=label)
+        roc_ax.fill_between(
+            roc_grid,
+            np.clip(roc_mean - roc_std, 0, 1),
+            np.clip(roc_mean + roc_std, 0, 1),
+            color=color,
+            alpha=0.12,
+        )
+        pr_ax.plot(
+            recall_grid,
+            pr_mean,
+            color=color,
+            linewidth=2,
+            label=f"{display_method(method)} (AUPR={np.mean(aps):.3f})",
+        )
+        pr_ax.fill_between(
+            recall_grid,
+            np.clip(pr_mean - pr_std, 0, 1),
+            np.clip(pr_mean + pr_std, 0, 1),
+            color=color,
+            alpha=0.12,
+        )
+
+    roc_ax.plot([0, 1], [0, 1], "k--", linewidth=1, label="Random")
+    for ax, x_label, y_label, panel in (
+        (roc_ax, "False Positive Rate", "True Positive Rate", "ROC"),
+        (pr_ax, "Recall", "Precision", "Precision–Recall"),
+    ):
+        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel=x_label, ylabel=y_label, title=panel)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8, loc="best")
+    fig.suptitle(title)
+    fig.tight_layout()
+    return fig
+
+
+def generate_roc_plot(
+    results_dir: str | Path,
+    dataset: str,
+    backbone: str,
+    *,
+    methods: list[str] | None = None,
+    config: str = "clean",
+) -> plt.Figure:
+    runs = discover_prediction_runs(
+        results_dir, dataset=dataset, backbone=backbone, methods=methods, config=config
+    )
+    return plot_roc_pr_runs(
+        runs, f"{dataset.upper()} / {backbone} / {config} — OOD Detection"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Plot real OOD ROC and PR curves.")
+    parser.add_argument("--results-dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument("--dataset", default="mgb")
+    parser.add_argument("--backbone", default="resnet")
+    parser.add_argument("--config", default="clean")
+    parser.add_argument("--methods", nargs="*")
+    parser.add_argument(
+        "--output",
+        default=str(_PROJECT_ROOT / "results" / "figures" / "roc_pr.png"),
+    )
+    parser.add_argument("--dpi", type=int, default=300)
+    args = parser.parse_args()
+    fig = generate_roc_plot(
+        args.results_dir,
+        args.dataset,
+        args.backbone,
+        methods=args.methods,
+        config=args.config,
+    )
+    path = save_figure(fig, args.output, args.dpi)
+    plt.close(fig)
+    print(f"Saved: {path}")
 
 
 if __name__ == "__main__":
-    # Demo / 演示
-    np.random.seed(42)
-    
-    # Generate sample data / 生成示例数据
-    n_id = 500
-    n_ood = 500
-    
-    # Method 1: Good separation
-    id_scores_1 = np.random.beta(2, 5, n_id)
-    ood_scores_1 = np.random.beta(5, 2, n_ood)
-    labels_1 = np.concatenate([np.zeros(n_id), np.ones(n_ood)])
-    scores_1 = np.concatenate([id_scores_1, ood_scores_1])
-    
-    # Method 2: Medium separation
-    id_scores_2 = np.random.beta(3, 4, n_id)
-    ood_scores_2 = np.random.beta(4, 3, n_ood)
-    labels_2 = labels_1.copy()
-    scores_2 = np.concatenate([id_scores_2, ood_scores_2])
-    
-    results_dict = {
-        "Method A (Good)": (labels_1, scores_1),
-        "Method B (Medium)": (labels_2, scores_2),
-    }
-    
-    # Plot
-    fig = plot_roc_and_pr(results_dict)
-    plt.savefig("roc_pr_curves_demo.png", dpi=150, bbox_inches='tight')
-    print("Saved: roc_pr_curves_demo.png")
-    plt.show()
+    main()

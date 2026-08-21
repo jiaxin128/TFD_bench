@@ -9,10 +9,23 @@ Usage / 使用方法:
     fig = reliability.plot_reliability_diagram(confidences, accuracies)
 """
 
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, Tuple, List
-import matplotlib
+from typing import Optional, Tuple
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+from analysis.visualization.io import (
+    discover_prediction_runs,
+    display_method,
+    primary_probs,
+    save_figure,
+)
 
 
 def compute_calibration_bins(
@@ -58,7 +71,7 @@ def compute_calibration_bins(
 def plot_reliability_diagram(
     confidences: np.ndarray,
     correctness: np.ndarray,
-    n_bins: int = 10,
+    n_bins: int = 15,
     title: str = "Reliability Diagram",
     figsize: Tuple[int, int] = (6, 5),
     color: str = "#3498db",
@@ -149,7 +162,7 @@ def plot_reliability_diagram(
 
 def plot_multi_reliability(
     results_dict: dict,
-    n_bins: int = 10,
+    n_bins: int = 15,
     figsize: Tuple[int, int] = None,
     ncols: int = 3,
     title: str = "Reliability Diagrams Comparison"
@@ -169,6 +182,7 @@ def plot_multi_reliability(
         matplotlib Figure
     """
     n_methods = len(results_dict)
+    ncols = min(ncols, n_methods)
     nrows = (n_methods + ncols - 1) // ncols
     
     if figsize is None:
@@ -198,21 +212,64 @@ def plot_multi_reliability(
     return fig
 
 
-if __name__ == "__main__":
-    # Demo / 演示
-    np.random.seed(42)
-    
-    # Generate sample data / 生成示例数据
-    n_samples = 1000
-    confidences = np.random.beta(5, 2, n_samples)  # Overconfident model
-    true_probs = confidences * 0.9  # Actual accuracy is lower
-    correctness = np.random.binomial(1, true_probs)
-    
-    # Plot single diagram
-    fig = plot_reliability_diagram(
-        confidences, correctness,
-        title="Sample Model"
+def generate_reliability_plot(
+    results_dir: str | Path,
+    dataset: str,
+    backbone: str,
+    *,
+    methods: list[str] | None = None,
+    config: str = "clean",
+    bins: int = 15,
+) -> plt.Figure:
+    runs = discover_prediction_runs(
+        results_dir, dataset=dataset, backbone=backbone, methods=methods, config=config
     )
-    plt.savefig("reliability_diagram_demo.png", dpi=150, bbox_inches='tight')
-    print("Saved: reliability_diagram_demo.png")
-    plt.show()
+    plot_data = {}
+    for method, method_runs in runs.items():
+        confidences, correctness = [], []
+        for _, arrays in method_runs:
+            probs = primary_probs(arrays)
+            targets = arrays["id_targets"].astype(int)
+            confidences.append(probs.max(axis=-1))
+            correctness.append((probs.argmax(axis=-1) == targets).astype(float))
+        plot_data[display_method(method)] = (
+            np.concatenate(confidences),
+            np.concatenate(correctness),
+        )
+    return plot_multi_reliability(
+        plot_data,
+        n_bins=bins,
+        ncols=min(3, len(plot_data)),
+        title=f"{dataset.upper()} / {backbone} / {config} — Reliability",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Plot real reliability diagrams.")
+    parser.add_argument("--results-dir", default=str(_PROJECT_ROOT / "results"))
+    parser.add_argument("--dataset", default="mgb")
+    parser.add_argument("--backbone", default="resnet")
+    parser.add_argument("--config", default="clean")
+    parser.add_argument("--methods", nargs="*")
+    parser.add_argument("--bins", type=int, default=15)
+    parser.add_argument(
+        "--output",
+        default=str(_PROJECT_ROOT / "results" / "figures" / "reliability.png"),
+    )
+    parser.add_argument("--dpi", type=int, default=300)
+    args = parser.parse_args()
+    fig = generate_reliability_plot(
+        args.results_dir,
+        args.dataset,
+        args.backbone,
+        methods=args.methods,
+        config=args.config,
+        bins=args.bins,
+    )
+    path = save_figure(fig, args.output, args.dpi)
+    plt.close(fig)
+    print(f"Saved: {path}")
+
+
+if __name__ == "__main__":
+    main()

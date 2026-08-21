@@ -18,9 +18,12 @@
 ├── methods/                # 每种不确定性方法的独立入口
 ├── src/                    # 数据、模型、损失、指标和训练核心
 ├── analysis/               # 结果汇总、表格和可视化
+├── docs/                   # 数据准备与完整复现指南
+├── tests/                  # 配置、结果 schema 与加载 smoke tests
 ├── requirements.txt        # Python 依赖及验证版本
 ├── run.py                  # 批量实验入口
-└── results/                # 默认输出目录
+├── LICENSE                 # Apache License 2.0
+└── results/                # 默认输出目录（不进入 Git）
 ```
 
 ## 环境
@@ -61,9 +64,9 @@ backbones:
 
 datasets:
   - name: seu
-    root: /mnt/d/Data/Machine/SEU
+    root: ./data/SEU
   - name: mgb
-    root: /mnt/d/Data/Machine/MGB
+    root: ./data/MGB
 
 training:
   epochs: 100
@@ -142,14 +145,14 @@ python methods/edl.py \
 ```bash
 python methods/edl.py \
   --dataset mgb \
-  --data-root /mnt/d/Data/Machine/MGB \
+  --data-root ./data/MGB \
   --backbone resnet \
   --epochs 50 \
   --batch-size 64 \
   --lr 0.001 \
   --seeds 0 1 2 \
   --val-split 0.2 \
-  --reg-weight 0.5 \
+  --reg-weight 0.01 \
   --loss-type digamma \
   --no-eval-noise
 ```
@@ -167,17 +170,22 @@ python methods/edl.py --help
 ```yaml
 method_args:
   deep_ensemble:
-    num_estimators: 8
-    ood_criterion: entropy
+    num_estimators: 4
+    ood_criterion: mi
+
+  packed_ensemble:
+    num_estimators: 4
+    alpha: 4
+    gamma: 1
 
   edl:
-    reg_weight: 0.5
+    reg_weight: 0.01
     loss_type: digamma
 
   mc_dropout:
     dropout_rate: 0.1
     num_estimators: 50
-    ood_criterion: entropy
+    ood_criterion: mi
 
   conformal_aps:
     alpha: 0.01
@@ -230,9 +238,14 @@ YAML 中的下划线参数会自动转换为命令行的连字符形式，例如
 
 方法名称与 `methods/<方法名称>.py` 一一对应。
 
-EDL 输出的是非负 evidence，而不是普通 logits。训练时使用 `DECLoss`，验证和测试时
-先计算 `alpha = evidence + 1`，再以 Dirichlet 均值 `alpha / alpha.sum()` 作为类别概率；
-因此 EDL 的 NLL 和 ECE 不会对 evidence 直接使用 softmax。
+EDL 通过 Softplus 将 backbone 输出转换为非负 evidence。训练使用 `DECLoss`，
+验证和测试使用 Dirichlet 均值 `alpha / alpha.sum()` 计算 ACC、NLL 和 ECE，
+其中 `alpha = evidence + 1`；OOD 检测使用 Dirichlet vacuity `K / alpha.sum()`。
+
+主 OOD 指标使用各方法的原生不确定性准则：确定性基线使用 MSP，EDL 使用
+Dirichlet vacuity `K/S`，采样和集成方法使用互信息（MI），Temperature Scaling
+和 Laplace 使用后处理概率上的 MSP，Conformal 使用预测集合大小。同时，
+Conformal 另外报告 Coverage Rate 和 Set Size。
 
 ## 支持的模型
 
@@ -270,19 +283,26 @@ mgb
 
 ```text
 results/<dataset>/<backbone>/<method>/
-├── config.json
-├── raw_all_seeds.csv
+├── manifest.json
+├── runs.csv
 ├── summary.csv
 └── seed<seed>/
     ├── metrics.csv
+    ├── predictions/
+    │   ├── clean.npz
+    │   └── <noise>_s<severity>.npz
     ├── ckpt/
     └── logs/
 ```
 
 - `metrics.csv`：单个随机种子的 clean/noise 指标
-- `raw_all_seeds.csv`：所有种子的原始结果
-- `summary.csv`：按测试配置汇总的均值和标准差
-- `config.json`：本次方法运行的最终参数
+- `runs.csv`：所有随机种子的原始指标，是方法级结果的统一入口
+- `summary.csv`：长表格式的均值、标准差与有效运行数
+- `manifest.json`：结果格式版本、运行状态、方法参数与文件索引
+- `predictions/*.npz`：逐样本概率、标签及方法原生 OOD 分数，供诊断图使用
+
+`seed<seed>/logs/` 仅保存 Lightning 训练过程日志，不作为结果汇总或绘图输入。旧版本的
+`raw_all_seeds.csv` 仍可读取；使用当前代码重跑后会自动采用上述统一格式。
 
 启用噪声评估后，每个随机种子还会运行数据集定义的不同噪声类型和严重程度，因此运行时间会明显增加。调试代码时建议使用：
 
@@ -317,13 +337,34 @@ python analysis/collect_results.py \
   --method edl
 ```
 
-生成对比表格：
+一次完成结果收集、Markdown 表格和全部图片：
+
+```bash
+python analysis/generate_report.py
+```
+
+输出统一保存在 `results/summary.json`、`results/tables/` 和 `results/figures/`。该命令默认
+从图片中排除共形预测方法；如需包含它们，添加 `--include-conformal`。训练命令不会自动
+执行报告生成。
+
+也可以单独生成对比表格：
 
 ```bash
 python analysis/generate_tables.py
 ```
 
-Markdown 表格默认保存到 `results/table.md`。表格只展示 `ACC`、`ECE`、`AUROC`，并按数据集、模型和测试配置分别生成表格，例如 `clean`、`gaussian_s1`、...、`gaussian_s5` 各有一张表。ACC、ECE 和 AUROC 均以百分数显示，粗体表示同一张表中的最优结果。
+Markdown 表格默认保存到 `results/tables/table.md`。表格只展示 `ACC`、`ECE`、`AUROC`，并按数据集、模型和测试配置分别生成表格，例如 `clean`、`gaussian_s1`、...、`gaussian_s5` 各有一张表。ACC、ECE 和 AUROC 均以百分数显示，粗体表示同一张表中的最优结果。
+
+OOD 评估同时保存总体 AUROC、各 OOD 故障/文件来源的 AUROC，以及对来源等权平均的
+Macro AUROC。需要生成包含这些明细的表格时，可显式指定指标，例如：
+
+```bash
+python analysis/generate_tables.py --metrics \
+  test/cls/Acc test/cal/ECE \
+  ood/overall_AUROC ood/source_AUROC/ORS1_var \
+  ood/source_AUROC/IRS1_var ood/source_AUROC/CC1_var \
+  ood/macro_AUROC
+```
 
 同时在终端中显示表格，或生成其他格式：
 
@@ -333,28 +374,104 @@ python analysis/generate_tables.py --format latex
 python analysis/generate_tables.py --format html
 ```
 
-后两条命令默认分别保存到 `results/table.tex` 和 `results/table.html`；仍可使用 `--output` 指定其他保存位置。
+后两条命令默认分别保存到 `results/tables/table.tex` 和 `results/tables/table.html`；仍可使用 `--output` 指定其他保存位置。
 
-完整生成命令：
+分步生成命令等价于：
 
 ```bash
 python analysis/collect_results.py
 python analysis/generate_tables.py
+python analysis/visualization/plot_all.py
 ```
 
-所有方法均使用验证集 `NLL` 最小的 epoch 作为最佳 checkpoint。测试集以及噪声测试结果不参与模型选择；多个随机种子分别选取 checkpoint 后，再汇总均值和标准差。
+常规方法使用验证集 `NLL` 最小的 epoch 作为最佳 checkpoint。SGLD、SGHMC 和
+SWAG 属于 posterior sampling 方法，评估训练结束时形成的完整样本集合，不加载某个
+单独 epoch 的最佳 checkpoint；它们的预训练模型仍由验证集 NLL 选择。测试集以及
+噪声测试结果均不参与模型选择，多个随机种子独立运行后再汇总均值和标准差。
 
-生成按数据集、模型和噪声等级分组的 ACC/ECE/AUROC 对比图，以及跨噪声等级趋势图：
+一键生成所有可用图片：
 
 ```bash
 python analysis/visualization/plot_all.py
 ```
 
-对比图中的点为多个随机种子的均值，误差线为标准差。需要先清理之前生成的基准图片时使用：
+`plot_all.py` 默认排除 `conformal_aps`、`conformal_raps` 和 `conformal_thr`。
+需要把共形预测加入图片时使用：
+
+```bash
+python analysis/visualization/plot_all.py --include-conformal
+```
+
+也可以排除任意其他方法：
+
+```bash
+python analysis/visualization/plot_all.py --exclude-methods swag sgld sghmc
+```
+
+对比图中的点为多个随机种子的均值，误差线为样本标准差。不同噪声类型分别成图，
+不会把 Gaussian、Impulse 等不同噪声首尾连接。需要先清理之前生成的图片时使用：
 
 ```bash
 python analysis/visualization/plot_all.py --clean
 ```
 
-图片默认保存到 `figures/<dataset>/<backbone>/`。`summary.json` 只包含聚合指标，
-因此 ROC 曲线、可靠性图和不确定性分布图需要额外的逐样本预测分数，不能由汇总文件直接还原。
+图片默认保存到 `results/figures/<dataset>/<backbone>/`。每个画图文件也都可以独立运行，
+其默认输出同样位于 `results/figures/`：
+
+```bash
+# 只依赖 results/summary.json；旧实验结果也可以直接画
+python analysis/visualization/comparison.py --dataset mgb --backbone resnet
+python analysis/visualization/noise_robustness.py --dataset mgb --backbone resnet
+
+# 依赖 seed*/predictions/*.npz
+python analysis/visualization/reliability.py --dataset mgb --backbone resnet
+python analysis/visualization/roc.py --dataset mgb --backbone resnet
+python analysis/visualization/uncertainty.py --dataset mgb --backbone resnet
+python analysis/visualization/risk_coverage.py --dataset mgb --backbone resnet
+python analysis/visualization/seed_stability.py --dataset mgb --backbone resnet
+```
+
+所有独立命令都支持 `--methods edl max_softmax`、`--config clean`、`--output`（噪声图使用
+`--output-dir`）等筛选参数，可用 `python <文件> --help` 查看完整参数。可靠性、ROC/PR、
+OOD 分数分布、风险—覆盖和 seed 稳定性必须使用逐样本预测；旧结果中若没有
+`predictions/*.npz`，需要用当前代码重跑相应方法一次。训练不会自动画图，只有显式运行上述
+分析命令时才生成图片。
+
+## 数据准备与复现
+
+数据集不随仓库分发，代码的 Apache-2.0 许可证也不覆盖第三方数据。请先阅读：
+
+- [`docs/DATASETS.md`](docs/DATASETS.md)：八个 loader 所需目录、文件名和已核实的官方来源
+- [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md)：环境记录、smoke test、完整实验、结果归档和复现边界
+
+公开配置使用仓库相对路径 `./data/SEU` 和 `./data/MGB`。可以把数据放到这些目录，也可以修改 YAML 中的 `datasets[].root`。`data/` 已加入 `.gitignore`。
+
+无数据即可执行的发布前检查：
+
+```bash
+python -m compileall -q run.py methods src analysis tests
+python -m unittest discover -s tests -v
+python run.py --dry-run
+```
+
+GitHub Actions 会在 push 和 pull request 时执行相同检查，并额外验证全部 method 的 `--help` 入口。
+
+## 开源许可证与致谢
+
+TFD-Bench 以 [Apache License 2.0](LICENSE) 发布，第三方归属见 [`NOTICE`](NOTICE)。
+
+本项目的部分不确定性量化训练、模型包装、指标和后处理组件基于或改写自
+[TorchUncertainty](https://github.com/torch-uncertainty/torch-uncertainty)，并针对一维故障诊断 benchmark 做了裁剪和修改。TorchUncertainty 同样采用 Apache-2.0 许可证。
+
+如果这些组件对研究有帮助，请引用 TorchUncertainty：
+
+```bibtex
+@inproceedings{lafage2025torch_uncertainty,
+  title     = {Torch-Uncertainty: A Deep Learning Framework for Uncertainty Quantification},
+  author    = {Lafage, Adrien and Laurent, Olivier and Gabetni, Firas and Franchi, Gianni},
+  booktitle = {NeurIPS Datasets and Benchmarks Track},
+  year      = {2025}
+}
+```
+
+各故障数据集仍应分别引用其原始发布方；本仓库不授予任何第三方数据的再分发权。

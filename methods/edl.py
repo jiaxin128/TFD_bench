@@ -9,40 +9,46 @@ import torch.nn.functional as F
 from torch import Tensor, nn, optim
 
 from src.losses import DECLoss
-from src.metrics.ood import EvidentialCriterion
 from src.training import ClassificationRoutine
 from src.training.experiment import add_experiment_args, fit_and_evaluate, run_repeated
 from src.utils import add_common_args, get_model, load_gpu_config, print_gpu_config
 
 
-class EvidenceWrapper(nn.Module):
-    def __init__(self, backbone):
-        super().__init__()
-        self.backbone = backbone
-
-    def forward(self, inputs):
-        return F.softplus(self.backbone(inputs))
-
-
 METHOD_NAME = "edl"
 
 
+class EvidenceWrapper(nn.Module):
+    """Convert unconstrained backbone outputs into smooth non-negative evidence."""
+
+    def __init__(self, backbone: nn.Module) -> None:
+        super().__init__()
+        self.backbone = backbone
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        return F.softplus(self.backbone(inputs))
+
+
 class EDLRoutine(ClassificationRoutine):
-    """Evaluate evidence through the mean of its Dirichlet distribution."""
+    """Evaluate EDL predictions through the Dirichlet predictive mean."""
 
     def prediction_to_probs(self, evidence: Tensor) -> Tensor:
-        alpha = evidence.clamp_min(0) + 1.0
+        alpha = evidence + 1.0
         return alpha / alpha.sum(dim=-1, keepdim=True)
 
 
 def run_once(args, seed, run_dir):
     def build(dm):
-        model = EvidenceWrapper(get_model(args.backbone, dm.num_channels, dm.num_classes))
+        backbone = get_model(args.backbone, dm.num_channels, dm.num_classes)
+        model = EvidenceWrapper(backbone)
         return EDLRoutine(
             model=model, num_classes=dm.num_classes,
             loss=DECLoss(reg_weight=args.reg_weight, loss_type=args.loss_type),
-            optim_recipe=optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-3),
-            eval_ood=True, ood_criterion=EvidentialCriterion(), save_in_csv=True,
+            optim_recipe=optim.Adam(
+                model.parameters(),
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+            ),
+            eval_ood=True, ood_criterion="evidential",
         )
     return fit_and_evaluate(args, run_dir, build)
 
@@ -53,7 +59,8 @@ def run(args):
 
 if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
-    parser.add_argument("--reg-weight", type=float, default=0.5)
+    parser.add_argument("--reg-weight", type=float, default=1e-5)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--loss-type", choices=["digamma", "log", "mse"], default="digamma")
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))

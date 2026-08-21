@@ -33,7 +33,7 @@ def run_once(args, seed, run_dir):
             format_batch_fn=RepeatTarget(args.num_estimators),
             loss=nn.CrossEntropyLoss(),
             optim_recipe=optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-3),
-            eval_ood=True, ood_criterion=criterion, save_in_csv=True,
+            eval_ood=True, ood_criterion=criterion,
         )
     return fit_and_evaluate(args, run_dir, build)
 
@@ -44,8 +44,8 @@ def run(args):
 
 if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
-    parser.add_argument("--num-estimators", type=int, default=8)
-    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="entropy")
+    parser.add_argument("--num-estimators", type=int, default=4)
+    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="mi")
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
     run(args)

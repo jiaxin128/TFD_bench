@@ -32,7 +32,7 @@ def run_once(args, seed, run_dir):
             model=model, num_classes=dm.num_classes, is_ensemble=True,
             loss=nn.CrossEntropyLoss(),
             optim_recipe={"optimizer": optimizer, "lr_scheduler": scheduler},
-            eval_ood=True, ood_criterion=MutualInformationCriterion(), save_in_csv=True,
+            eval_ood=True, ood_criterion=MutualInformationCriterion(),
         )
     return fit_and_evaluate(args, run_dir, build)
 

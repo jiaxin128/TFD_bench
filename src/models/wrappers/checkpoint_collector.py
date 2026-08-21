@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 import copy
 
 import torch
@@ -13,6 +15,7 @@ class CheckpointCollector(nn.Module):
         save_schedule: list[int] | None = None,
         use_final_model: bool = True,
         store_on_cpu: bool = False,
+        max_num_estimators: int | None = None,
     ) -> None:
         """Ensemble of models at different points in the training trajectory.
 
@@ -27,6 +30,8 @@ class CheckpointCollector(nn.Module):
             save_schedule (list[int] | None): The epochs at which to save the model. Defaults to ``None``.
             use_final_model (bool): Whether to use the final model as a checkpoint. Defaults to ``True``.
             store_on_cpu (bool): Whether to put the models on the CPU when unused. Defaults to ``False``.
+            max_num_estimators (int | None): Maximum total number of estimators,
+                including the final model when ``use_final_model=True``. Defaults to ``None``.
 
         Note:
             The models are saved at the end of the specified epochs.
@@ -59,6 +64,9 @@ class CheckpointCollector(nn.Module):
 
         self.use_final_model = use_final_model
         self.store_on_cpu = store_on_cpu
+        if max_num_estimators is not None and max_num_estimators < 2:
+            raise ValueError("max_num_estimators must be at least 2.")
+        self.max_num_estimators = max_num_estimators
         self.register_buffer("num_estimators", torch.tensor(use_final_model, dtype=torch.long))
         self.saved_models = nn.ModuleList()
 
@@ -85,6 +93,12 @@ class CheckpointCollector(nn.Module):
         Args:
             epoch (int): The current epoch.
         """
+        if (
+            self.max_num_estimators is not None
+            and int(self.num_estimators.item()) >= self.max_num_estimators
+        ):
+            return
+
         match self.mode:
             case "schedule":
                 if epoch not in self.save_schedule:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
@@ -131,13 +133,23 @@ class DECLoss(nn.Module):
             loss_dirichlet = self._digamma_loss(evidence, targets)
 
         if self.reg_weight is None and self.annealing_step is None:
-            annealing_coef = 0
-        elif self.annealing_step is None and self.reg_weight > 0:
-            annealing_coef = self.reg_weight
+            annealing_coef = torch.tensor(0.0, dtype=evidence.dtype, device=evidence.device)
+        elif self.annealing_step is None and self.reg_weight is not None:
+            annealing_coef = torch.tensor(
+                float(self.reg_weight), dtype=evidence.dtype, device=evidence.device
+            )
         else:
+            if current_epoch is None or self.annealing_step is None:
+                raise ValueError(
+                    "current_epoch and annealing_step are required for annealed DEC regularization."
+                )
             annealing_coef = torch.min(
-                input=torch.tensor(1.0, dtype=evidence.dtype),
-                other=torch.tensor(current_epoch / self.annealing_step, dtype=evidence.dtype),
+                input=torch.tensor(1.0, dtype=evidence.dtype, device=evidence.device),
+                other=torch.tensor(
+                    current_epoch / self.annealing_step,
+                    dtype=evidence.dtype,
+                    device=evidence.device,
+                ),
             )
 
         loss_reg = self._kldiv_reg(evidence, targets)

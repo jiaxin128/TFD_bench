@@ -27,7 +27,7 @@ def run_once(args, seed, run_dir):
             model=model, num_classes=dm.num_classes, is_ensemble=True,
             loss=nn.CrossEntropyLoss(),
             optim_recipe=optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-3),
-            eval_ood=True, ood_criterion=criterion, save_in_csv=True,
+            eval_ood=True, ood_criterion=criterion,
         )
     return fit_and_evaluate(args, run_dir, build)
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
     parser.add_argument("--dropout-rate", type=float, default=0.1)
     parser.add_argument("--num-estimators", type=int, default=50)
-    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="entropy")
+    parser.add_argument("--ood-criterion", choices=["entropy", "mi"], default="mi")
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
     run(args)

@@ -3,7 +3,24 @@
 
 # Run every selected dataset × method × backbone combination.
 methods:
-  - edl
+  # - max_softmax
+  # - deep_ensemble
+  # - packed_ensemble
+  # - batch_ensemble
+  # - snapshot_ensemble
+  # - checkpoint_ensemble
+  # - variational_bnn
+  - swag
+  - sgld
+  - sghmc
+  # - edl
+  # - conformal_aps
+  # - conformal_raps
+  # - conformal_thr
+  # - temperature_scaling
+  # - laplace_approx
+  # - mc_dropout
+  # - mc_batch_norm
 
 # ResNet is supported by all methods. Add transformer, lenet, mlp, lstm, or
 # timesnet only after confirming that a method provides that variant.
@@ -12,16 +29,16 @@ backbones:
 
 datasets:
   - name: seu
-    root: /mnt/d/Data/Machine/SEU
+    root: ./data/SEU
   - name: mgb
-    root: /mnt/d/Data/Machine/MGB
+    root: ./data/MGB
 
 training:
   epochs: 100
   batch_size: 128
   learning_rate: 0.001
-  seeds: [0, 1, 2]
-  n_runs: 3          # Used only when seeds is null
+  seeds: [0, 1, 2, 3, 4]
+  n_runs: 5          # Used only when seeds is null
   val_split: 0.2
 
 evaluation:
@@ -39,10 +56,12 @@ output:
 # Optional overrides passed only to the corresponding method.
 method_args:
   deep_ensemble:
-    num_estimators: 8
-    ood_criterion: entropy
+    num_estimators: 4
+    ood_criterion: mi
   packed_ensemble:
     num_estimators: 4
+    alpha: 4
+    gamma: 1
   batch_ensemble:
     num_estimators: 4
   snapshot_ensemble:
@@ -53,26 +72,30 @@ method_args:
   variational_bnn:
     kl_weight: 0.0001
     num_samples: 3
-    ood_criterion: entropy
+    ood_criterion: mi
   swag:
     cycle_start: 25
     cycle_length: 1
+    num_estimators: 16
   sgld:
     pretrain_epochs: 20
     pretrain_lr: 0.001
     cycle_start: 5
     cycle_length: 5
     noise_factor: 0.01
+    num_estimators: 16
   sghmc:
     pretrain_epochs: 20
     pretrain_lr: 0.01
-    cycle_start: 5
+    cycle_start: 20
     cycle_length: 5
     friction: 0.05
     burn_in_steps: 200
     noise_factor: 0.01
+    num_estimators: 16
   edl:
-    reg_weight: 0.5
+    reg_weight: 0.01
+    weight_decay: 0.005
     loss_type: digamma
   conformal_aps:
     alpha: 0.01
@@ -90,10 +113,13 @@ method_args:
   laplace_approx:
     weight_subset: last_layer
     hessian_struct: kron
+  temperature_scaling:
+    min_temperature: 0.1
+    max_temperature: 10.0
   mc_dropout:
     dropout_rate: 0.1
     num_estimators: 10
-    ood_criterion: entropy
+    ood_criterion: mi
   mc_batch_norm:
     num_estimators: 8
     mc_batch_size: 4

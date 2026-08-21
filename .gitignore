@@ -28,3 +28,8 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local datasets and test coverage
+data/
+.coverage
+htmlcov/

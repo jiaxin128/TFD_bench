@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 XJTU Gearbox Dataset / 西安交通大学齿轮箱数据集
 
@@ -132,7 +134,7 @@ def build_df_from_classes(
     Build DataFrame from class folders.
     从类别文件夹构建DataFrame。
     """
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
     
     for cls in classes:
         filepath = root / cls / channel
@@ -147,10 +149,15 @@ def build_df_from_classes(
             d, l = data_load(str(filepath), label)
             all_data += d
             all_labels += l
+            all_sources += [cls] * len(d)
         except Exception as e:
             print(f"Warning: Failed to load {filepath}: {e}")
     
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 class XJTUDataModule(NoisyEvaluationMixin, TUDataModule):

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """Reproducible corruptions for one-dimensional signal evaluation."""
 
 from collections.abc import Mapping, Sequence
@@ -123,7 +125,10 @@ def build_noisy_df(
         )
         for index, signal in enumerate(frame["data"])
     ]
-    return pd.DataFrame({"data": noisy_data, "label": frame["label"].values})
+    result = pd.DataFrame({"data": noisy_data, "label": frame["label"].values})
+    if "source" in frame:
+        result["source"] = frame["source"].values
+    return result
 
 
 class NoisyEvaluationMixin:

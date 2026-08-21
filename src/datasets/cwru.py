@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """
 CWRU Bearing Dataset / 凯斯西储大学轴承数据集
 
@@ -198,7 +200,7 @@ def build_df_from_files(root: str | Path, file_list: list, class_list: list, lab
         label_dict: Mapping from class name to label
     """
     root = Path(root)
-    all_data, all_labels = [], []
+    all_data, all_labels, all_sources = [], [], []
 
     for file_num in file_list:
         if file_num not in FILE_MAPPING:
@@ -219,10 +221,15 @@ def build_df_from_files(root: str | Path, file_list: list, class_list: list, lab
             d, l = data_load(str(filepath), label)
             all_data += d
             all_labels += l
+            all_sources += [fault_type] * len(d)
         except Exception as e:
             print(f"Warning: Failed to load {filepath}: {e}")
 
-    return pd.DataFrame({"data": all_data, "label": all_labels})
+    return pd.DataFrame({
+        "data": all_data,
+        "label": all_labels,
+        "source": all_sources,
+    })
 
 
 class CWRUDataModule(NoisyEvaluationMixin, TUDataModule):
@@ -388,28 +395,3 @@ def print_dataset_info(root: str | Path):
         print(f"  {cls}: {len(files)} files")
     
     print("=" * 60)
-
-
-if __name__ == "__main__":
-    import sys
-    
-    # Default path or command line argument
-    if len(sys.argv) > 1:
-        data_root = sys.argv[1]
-    else:
-        data_root = r"D:\LFW\CWRU\12k"
-    
-    print_dataset_info(data_root)
-    
-    # Test loading
-    print("\nTesting DataModule...")
-    dm = CWRUDataModule(root=data_root, batch_size=32, eval_ood=True, eval_shift=True)
-    dm.setup()
-    
-    print(f"Train samples: {len(dm.train)}")
-    print(f"Val samples: {len(dm.val)}")
-    print(f"Test samples: {len(dm.test)}")
-    if dm.eval_ood:
-        print(f"OOD samples: {len(dm.ood)}")
-    if dm.eval_shift:
-        print(f"Shift samples: {len(dm.shift)}")

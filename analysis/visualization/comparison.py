@@ -9,10 +9,28 @@ Usage / 使用方法:
     fig = comparison.plot_metric_comparison(results_dict)
 """
 
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 from typing import Optional, Tuple, List, Dict
-import matplotlib
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+from analysis.visualization.io import display_method, load_summary_group, save_figure
+
+
+SUMMARY_METRICS = {
+    "test/cls/Acc": ("ACC", True),
+    "test/cal/ECE": ("ECE", False),
+    "ood/AUROC": ("AUROC", True),
+}
 
 
 def plot_metric_comparison(
@@ -238,23 +256,70 @@ def plot_radar_chart(
     return fig
 
 
+def generate_comparison_plot(
+    summary: str | Path,
+    dataset: str,
+    backbone: str,
+    config: str = "clean",
+    methods: list[str] | None = None,
+) -> plt.Figure:
+    """Create three independent panels from an aggregated summary file."""
+    records = load_summary_group(
+        summary, dataset=dataset, backbone=backbone, config=config, methods=methods
+    )
+    if not records:
+        raise FileNotFoundError(
+            f"No summary records for {dataset}/{backbone}/{config} in {summary}"
+        )
+
+    method_names = sorted(records)
+    y = np.arange(len(method_names))
+    fig, axes = plt.subplots(
+        1, 3, figsize=(15, max(5, 0.42 * len(method_names))), sharey=True
+    )
+    for ax, (metric, (label, higher_better)) in zip(axes, SUMMARY_METRICS.items()):
+        means = np.asarray([
+            float(records[name][metric]["mean"]) * 100
+            for name in method_names
+        ])
+        stds = np.asarray([
+            float(records[name][metric].get("std", 0.0) or 0.0) * 100
+            for name in method_names
+        ])
+        ax.errorbar(means, y, xerr=stds, fmt="o", capsize=2.5, color="#2878b5")
+        best = int(np.argmax(means) if higher_better else np.argmin(means))
+        ax.scatter(means[best], y[best], s=85, color="#f2c14e", edgecolor="#7a5c00", zorder=3)
+        ax.set_title(f"{label} {'↑' if higher_better else '↓'}")
+        ax.set_xlabel("Percent (%)")
+        ax.grid(axis="x", alpha=0.3)
+        ax.invert_yaxis()
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels([display_method(name) for name in method_names])
+    fig.suptitle(f"{dataset} / {backbone} / {config}")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Plot ACC, ECE, and AUROC from summary.json.")
+    parser.add_argument("--summary", default=str(_PROJECT_ROOT / "results" / "summary.json"))
+    parser.add_argument("--dataset", default="mgb")
+    parser.add_argument("--backbone", default="resnet")
+    parser.add_argument("--config", default="clean")
+    parser.add_argument("--methods", nargs="+")
+    parser.add_argument(
+        "--output",
+        default=str(_PROJECT_ROOT / "results" / "figures" / "comparison.png"),
+    )
+    parser.add_argument("--dpi", type=int, default=300)
+    args = parser.parse_args()
+    fig = generate_comparison_plot(
+        args.summary, args.dataset, args.backbone, args.config, args.methods
+    )
+    path = save_figure(fig, args.output, args.dpi)
+    plt.close(fig)
+    print(f"Saved: {path}")
+
+
 if __name__ == "__main__":
-    # Demo / 演示
-    results = {
-        "MaxSoftmax": {"Accuracy": 0.95, "ECE": 0.08, "AUROC": 0.85, "FPR95": 0.35},
-        "MC Dropout": {"Accuracy": 0.96, "ECE": 0.05, "AUROC": 0.89, "FPR95": 0.28},
-        "EDL": {"Accuracy": 0.97, "ECE": 0.03, "AUROC": 0.92, "FPR95": 0.20},
-        "Deep Ensembles": {"Accuracy": 0.98, "ECE": 0.02, "AUROC": 0.94, "FPR95": 0.15},
-    }
-    
-    # Bar chart
-    fig1 = plot_metric_comparison(results)
-    plt.savefig("comparison_bar_demo.png", dpi=150, bbox_inches='tight')
-    print("Saved: comparison_bar_demo.png")
-    
-    # Heatmap
-    fig2 = plot_metric_heatmap(results)
-    plt.savefig("comparison_heatmap_demo.png", dpi=150, bbox_inches='tight')
-    print("Saved: comparison_heatmap_demo.png")
-    
-    plt.show()
+    main()

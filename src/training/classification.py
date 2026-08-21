@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 from collections.abc import Callable
 from pathlib import Path
 
@@ -84,6 +86,7 @@ class ClassificationRoutine(LightningModule):
         log_post_processing: bool = True,
         num_bins_cal_err: int = 15,
         save_in_csv: bool = False,
+        collect_predictions: bool = False,
         csv_filename: str = "results.csv",
     ) -> None:
         r"""Routine for training & testing on **classification** tasks.
@@ -170,6 +173,7 @@ class ClassificationRoutine(LightningModule):
         self.num_tta = num_tta
         self.ood_criterion = get_ood_criterion(ood_criterion)
         self.save_in_csv = save_in_csv
+        self.collect_predictions = collect_predictions
         self.csv_filename = csv_filename
         self.binary_cls = num_classes == 1
         self.needs_epoch_update = isinstance(model, EPOCH_UPDATE_MODEL)
@@ -236,9 +240,9 @@ class ClassificationRoutine(LightningModule):
             metrics_dict |= {
                 "cls/AUROC": BinaryAUROC(),
                 "cls/AUPR": BinaryAveragePrecision(),
-                "cls/FRP95": FPR95(pos_label=1),
+                "cls/FPR95": FPR95(pos_label=1),
             }
-            groups.extend([["cls/AUROC", "cls/AUPR"], ["cls/FRP95"]])
+            groups.extend([["cls/AUROC", "cls/AUPR"], ["cls/FPR95"]])
 
         cls_metrics = MetricCollection(metrics_dict, compute_groups=groups)
         self.val_cls_metrics = cls_metrics.clone(prefix="val/")
@@ -404,6 +408,19 @@ class ClassificationRoutine(LightningModule):
             with torch.inference_mode(False):
                 self.post_processing.fit(self.trainer.datamodule.postprocess_dataloader())
 
+        if self.collect_predictions:
+            self._prediction_storage = {
+                "id_probs": [],
+                "id_base_probs": [],
+                "id_targets": [],
+                "id_ood_scores": [],
+                "ood_probs": [],
+                "ood_base_probs": [],
+                "ood_scores": [],
+                "id_prediction_sets": [],
+                "ood_prediction_sets": [],
+            }
+
         if getattr(self.model, "need_bn_update", False):
             train_loader = self.trainer.train_dataloader
             if train_loader is None:
@@ -541,6 +558,32 @@ class ClassificationRoutine(LightningModule):
         elif self.ood_criterion.input_type == OODCriterionInputType.POST_PROCESSING:
             ood_scores = self.ood_criterion(pp_probs)
 
+        if self.collect_predictions:
+            primary_probs = probs
+            if self.post_processing is not None and not isinstance(self.post_processing, Conformal):
+                primary_probs = pp_probs
+            prefix = "id" if dataloader_idx == 0 else "ood"
+            if dataloader_idx in (0, 1):
+                self._prediction_storage[f"{prefix}_probs"].append(
+                    primary_probs.detach().cpu()
+                )
+                self._prediction_storage[f"{prefix}_base_probs"].append(
+                    probs.detach().cpu()
+                )
+            if dataloader_idx == 0:
+                self._prediction_storage["id_targets"].append(targets.detach().cpu())
+                self._prediction_storage["id_ood_scores"].append(
+                    ood_scores.detach().flatten().cpu()
+                )
+            elif self.eval_ood and dataloader_idx == 1:
+                self._prediction_storage["ood_scores"].append(
+                    ood_scores.detach().flatten().cpu()
+                )
+            if dataloader_idx in (0, 1) and isinstance(self.post_processing, Conformal):
+                self._prediction_storage[f"{prefix}_prediction_sets"].append(
+                    pp_probs.detach().cpu()
+                )
+
         if dataloader_idx == 0:
             # squeeze if binary classification only for binary metrics
             self.test_cls_metrics.update(
@@ -649,6 +692,15 @@ class ClassificationRoutine(LightningModule):
                 Path(self.logger.log_dir) / self.csv_filename,
                 result_dict,
             )
+
+    def get_prediction_artifacts(self) -> dict[str, Tensor]:
+        """Return the per-sample tensors collected during the latest test run."""
+        storage = getattr(self, "_prediction_storage", {})
+        return {
+            name: torch.cat(chunks, dim=0)
+            for name, chunks in storage.items()
+            if chunks
+        }
 
 
 def _classification_routine_checks(

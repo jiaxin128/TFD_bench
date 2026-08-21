@@ -26,7 +26,7 @@ def run_once(args, seed, run_dir):
             format_batch_fn=RepeatTarget(args.num_estimators),
             loss=nn.CrossEntropyLoss(),
             optim_recipe=optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-3),
-            eval_ood=True, ood_criterion=MutualInformationCriterion(), save_in_csv=True,
+            eval_ood=True, ood_criterion=MutualInformationCriterion(),
         )
     return fit_and_evaluate(args, run_dir, build)
 

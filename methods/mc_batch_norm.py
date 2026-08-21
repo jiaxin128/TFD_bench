@@ -34,7 +34,7 @@ def run_once(args, seed, run_dir):
     routine = ClassificationRoutine(
         model=mc_model, num_classes=datamodule.num_classes,
         loss=nn.CrossEntropyLoss(), is_ensemble=True, eval_ood=True,
-        ood_criterion=MutualInformationCriterion(), save_in_csv=True,
+        ood_criterion=MutualInformationCriterion(),
     )
     return evaluate(args, trainer, routine, datamodule)
 

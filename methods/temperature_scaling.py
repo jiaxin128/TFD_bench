@@ -12,6 +12,7 @@ from src.training import ClassificationRoutine
 from src.training.experiment import (
     add_experiment_args,
     evaluate,
+    promote_postprocess_metrics,
     run_repeated,
     train_base_classifier,
 )
@@ -24,21 +25,29 @@ def run_once(args, seed, run_dir):
     trainer, datamodule, model = train_base_classifier(args, run_dir)
     raw_routine = ClassificationRoutine(
         model=model, num_classes=datamodule.num_classes,
-        loss=nn.CrossEntropyLoss(), eval_ood=True, save_in_csv=True,
+        loss=nn.CrossEntropyLoss(), eval_ood=True,
     )
-    before = evaluate(args, trainer, raw_routine, datamodule)
+    baseline = evaluate(args, trainer, raw_routine, datamodule, artifact_prefix="baseline_")
 
-    scaler = TemperatureScaler(model=model, device=next(model.parameters()).device)
+    scaler = TemperatureScaler(
+        model=model,
+        device=next(model.parameters()).device,
+        min_temperature=args.min_temperature,
+        max_temperature=args.max_temperature,
+    )
     scaler.fit(datamodule.postprocess_dataloader())
     temperature = scaler.temperature[0].item()
     scaler.fit = lambda *args, **kwargs: None
     scaled_routine = ClassificationRoutine(
         model=model, num_classes=datamodule.num_classes,
         loss=nn.CrossEntropyLoss(), eval_ood=True,
-        post_processing=scaler, log_post_processing=False, save_in_csv=True,
+        post_processing=scaler, log_post_processing=True,
+        ood_criterion="post_processing",
     )
-    after = evaluate(args, trainer, scaled_routine, datamodule)
-    results = {f"before_{name}": metrics for name, metrics in before.items()}
+    after = promote_postprocess_metrics(
+        evaluate(args, trainer, scaled_routine, datamodule, artifact_prefix="after_")
+    )
+    results = {f"baseline_{name}": metrics for name, metrics in baseline.items()}
     results.update({
         f"after_{name}": {**metrics, "temperature": temperature}
         for name, metrics in after.items()
@@ -52,6 +61,8 @@ def run(args):
 
 if __name__ == "__main__":
     parser = add_experiment_args(add_common_args(argparse.ArgumentParser()))
+    parser.add_argument("--min-temperature", type=float, default=0.1)
+    parser.add_argument("--max-temperature", type=float, default=10.0)
     args = parser.parse_args()
     print_gpu_config(load_gpu_config(args))
     run(args)

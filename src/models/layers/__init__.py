@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 # ruff: noqa: F401
 from .batch_ensemble import BatchConv1d, BatchConv2d, BatchConvTranspose2d, BatchLinear
 from .bayesian import BayesConv1d, BayesConv2d, BayesConv3d, BayesLinear

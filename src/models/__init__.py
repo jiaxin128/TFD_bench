@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 """One-dimensional models for fault diagnosis."""
 
 from src.models.resnet import resnet1d, packed_resnet1d, bayesian_resnet1d, batchensemble_resnet1d

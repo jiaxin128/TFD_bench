@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# TFD-Bench modification: adapted for one-dimensional fault-diagnosis benchmarking.
 import torch
 from torch import Tensor
 from torchmetrics import Metric
@@ -77,54 +79,36 @@ class FPRx(Metric):
         Returns:
             Tensor: The value of the FPRx.
         """
-        conf = dim_zero_cat(self.conf)
-        targets = dim_zero_cat(self.targets)
+        conf = dim_zero_cat(self.conf).flatten()
+        labels = dim_zero_cat(self.targets).flatten() == self.pos_label
+        if conf.shape != labels.shape:
+            raise ValueError("Expected `conf` and `target` to have the same shape.")
 
-        # map examples and labels to OOD first
-        indx = torch.argsort(targets, descending=True)
-        examples = conf[indx]
-        labels = torch.zeros_like(targets, dtype=torch.bool, device=self.device)
-        labels[: torch.count_nonzero(targets)] = True
+        num_positive = labels.sum()
+        num_negative = (~labels).sum()
+        if num_positive == 0 or num_negative == 0:
+            dtype = conf.dtype if conf.is_floating_point() else torch.float32
+            return torch.tensor(torch.nan, device=conf.device, dtype=dtype)
+        if self.recall_level == 0:
+            return conf.new_tensor(0.0, dtype=torch.float32)
 
-        # sort examples and labels by decreasing confidence
-        desc_scores_indx = torch.argsort(examples, descending=True)
-        examples = examples[desc_scores_indx]
-        labels = labels[desc_scores_indx]
+        order = conf.argsort(descending=True)
+        sorted_scores = conf[order]
+        sorted_labels = labels[order]
 
-        # Get the indices of the distinct values
-        distinct_value_indices = torch.where(torch.diff(examples))[0]
+        # Evaluate thresholds only after complete groups of tied scores.
         threshold_idxs = torch.cat(
-            [
-                distinct_value_indices,
-                torch.tensor([labels.shape[0] - 1], dtype=torch.long, device=self.device),
-            ]
+            (
+                torch.where(sorted_scores[1:] != sorted_scores[:-1])[0],
+                torch.tensor([labels.numel() - 1], device=labels.device),
+            )
         )
+        true_positive = sorted_labels.cumsum(dim=0)[threshold_idxs]
+        false_positive = threshold_idxs + 1 - true_positive
+        recall = true_positive / num_positive
 
-        # accumulate the true positives with decreasing threshold
-        true_pos = torch.cumsum(labels, dim=0)[threshold_idxs]
-        false_pos = 1 + threshold_idxs - true_pos  # add one because of zero-based indexing
-
-        # check that there is at least one OOD example
-        if true_pos[-1] == 0:
-            return torch.tensor([torch.nan], device=self.device)
-
-        recall = true_pos / true_pos[-1]
-
-        last_ind = torch.searchsorted(true_pos, true_pos[-1])
-        recall = torch.cat(
-            [
-                recall[: last_ind + 1].flip(0),
-                torch.tensor([1.0], device=self.device),
-            ]
-        )
-        false_pos = torch.cat(
-            [
-                false_pos[: last_ind + 1].flip(0),
-                torch.tensor([0.0], device=self.device),
-            ]
-        )
-        cutoff = torch.argmin(torch.abs(recall - self.recall_level))
-        return false_pos[cutoff] / (~labels).sum()
+        cutoff = torch.where(recall >= self.recall_level)[0][0]
+        return false_positive[cutoff] / num_negative
 
 
 class FPR95(FPRx):

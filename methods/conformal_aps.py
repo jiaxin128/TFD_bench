@@ -18,7 +18,9 @@ def run_once(args, seed, run_dir):
             alpha=args.alpha, model=model, randomized=args.randomized,
             enable_ts=args.enable_ts, device=next(model.parameters()).device,
         )
-    return train_postprocess_and_evaluate(args, run_dir, build, ood_criterion="post_processing")
+    return train_postprocess_and_evaluate(
+        args, run_dir, build, ood_criterion="conformal_set_size"
+    )
 
 
 def run(args):
