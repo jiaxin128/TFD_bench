@@ -33,3 +33,17 @@ Thumbs.db
 data/
 .coverage
 htmlcov/
+
+
+# Unpublished paper and LaTeX build artifacts
+paper/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc

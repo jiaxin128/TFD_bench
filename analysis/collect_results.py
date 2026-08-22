@@ -44,7 +44,7 @@ def _read_standard_metrics(
         # calibrated result. Only the latter represents this method in method
         # comparison tables.
         if method == "temperature_scaling":
-            if test_config.startswith("before_"):
+            if test_config.startswith(("baseline_", "before_")):
                 continue
             if test_config.startswith("after_"):
                 test_config = test_config.removeprefix("after_")

@@ -42,7 +42,7 @@ def discover_prediction_runs(
             continue
         artifact_config = path.stem
         if method == "temperature_scaling":
-            if artifact_config.startswith("before_"):
+            if artifact_config.startswith(("baseline_", "before_")):
                 continue
             artifact_config = artifact_config.removeprefix("after_")
         if artifact_config != config:

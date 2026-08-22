@@ -43,14 +43,38 @@ class ResultSchemaTests(unittest.TestCase):
         self.assertAlmostEqual(stats["metrics"]["test/cls/Acc"]["mean"], 0.9)
         self.assertEqual(stats["metrics"]["ood/AUROC"]["n"], 2)
 
+    def test_temperature_baseline_is_not_collected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            method_dir = root / "demo" / "resnet" / "temperature_scaling"
+            method_dir.mkdir(parents=True)
+            with (method_dir / "runs.csv").open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(
+                    stream,
+                    fieldnames=["seed", "config", "test/cls/Acc", "test/cal/ECE"],
+                )
+                writer.writeheader()
+                writer.writerows([
+                    {"seed": 0, "config": "baseline_clean", "test/cls/Acc": 0.8, "test/cal/ECE": 0.2},
+                    {"seed": 0, "config": "after_clean", "test/cls/Acc": 0.8, "test/cal/ECE": 0.05},
+                ])
+            records = collect_from_results_dir(str(root))
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["method"], "temperature_scaling")
+        self.assertEqual(records[0]["config"], "clean")
+        self.assertAlmostEqual(records[0]["metrics"]["test/cal/ECE"], 0.05)
+
     def test_tidy_summary_and_manifest_contract(self) -> None:
         frame = pd.DataFrame([
             {"seed": 0, "config": "clean", "test/cls/Acc": 0.8},
             {"seed": 1, "config": "clean", "test/cls/Acc": 1.0},
+            {"seed": 0, "config": "baseline_clean", "test/cls/Acc": 0.7},
         ])
         summary = _build_summary(frame)
         self.assertEqual(list(summary.columns), ["config", "metric", "mean", "std", "n"])
         self.assertEqual(int(summary.iloc[0]["n"]), 2)
+        self.assertEqual(set(summary["config"]), {"clean"})
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -3,24 +3,24 @@
 
 # Run every selected dataset × method × backbone combination.
 methods:
-  # - max_softmax
-  # - deep_ensemble
-  # - packed_ensemble
-  # - batch_ensemble
-  # - snapshot_ensemble
-  # - checkpoint_ensemble
-  # - variational_bnn
+  - max_softmax
+  - deep_ensemble
+  - packed_ensemble
+  - batch_ensemble
+  - snapshot_ensemble
+  - checkpoint_ensemble
+  - variational_bnn
   - swag
   - sgld
   - sghmc
-  # - edl
-  # - conformal_aps
-  # - conformal_raps
-  # - conformal_thr
-  # - temperature_scaling
-  # - laplace_approx
-  # - mc_dropout
-  # - mc_batch_norm
+  - edl
+  - conformal_aps
+  - conformal_raps
+  - conformal_thr
+  - temperature_scaling
+  - laplace_approx
+  - mc_dropout
+  - mc_batch_norm
 
 # ResNet is supported by all methods. Add transformer, lenet, mlp, lstm, or
 # timesnet only after confirming that a method provides that variant.
@@ -29,9 +29,9 @@ backbones:
 
 datasets:
   - name: seu
-    root: ./data/SEU
+    root: /mnt/d/Data/Machine/SEU
   - name: mgb
-    root: ./data/MGB
+    root: /mnt/d/Data/Machine/MGB
 
 training:
   epochs: 100

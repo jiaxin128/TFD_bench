@@ -408,6 +408,8 @@ def _build_summary(frame: pd.DataFrame) -> pd.DataFrame:
     ]
     rows: list[dict[str, Any]] = []
     for config, group in frame.groupby("config", sort=False):
+        if str(config).startswith(("baseline_", "before_")):
+            continue
         for metric in metric_cols:
             values = pd.to_numeric(group[metric], errors="coerce").dropna()
             if values.empty:
